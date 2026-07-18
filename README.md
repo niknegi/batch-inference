@@ -173,8 +173,8 @@ GitHub Actions workflows live in `.github/workflows/`:
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| **CI** | push/PR to `master`/`main` | Ruff lint + format, pytest, Docker build (no push) |
-| **CD** | push to `master`/`main`, tags `v*`, or manual | Build & push image to `ghcr.io/niknegi/batch-inference` |
+| **CI** | push/PR to `master`/`main` | Ruff lint + format, **full pytest suite** (`tests/`), Docker build (no push) |
+| **CD** | push to `master`/`main`, tags `v*`, or manual | Re-runs full test suite, then builds & pushes to `ghcr.io/niknegi/batch-inference` (publish is blocked if tests fail) |
 
 Pull the published image:
 
