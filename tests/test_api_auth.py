@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.routes import get_arq, get_spaces, router
 from app.core.config import Settings, get_settings
@@ -17,9 +17,7 @@ from tests.conftest import FakeSpaces
 
 
 @pytest.fixture
-async def api_env(tmp_path):
-    from sqlalchemy.ext.asyncio import create_async_engine
-
+async def api_env():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -43,23 +41,13 @@ async def api_env(tmp_path):
         async with factory() as session:
             yield session
 
-    async def override_settings():
-        return settings
-
-    async def override_spaces():
-        return spaces
-
-    async def override_arq():
-        return arq
-
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[get_settings] = override_settings
-    app.dependency_overrides[get_spaces] = override_spaces
-    app.dependency_overrides[get_arq] = override_arq
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_spaces] = lambda: spaces
+    app.dependency_overrides[get_arq] = lambda: arq
 
-    client = TestClient(app)
-    yield client, spaces, arq, settings, factory
-    client.close()
+    with TestClient(app) as client:
+        yield client, spaces, arq, settings, factory
     await engine.dispose()
 
 

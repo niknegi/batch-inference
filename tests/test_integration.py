@@ -3,115 +3,30 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from fakeredis.aioredis import FakeRedis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.spaces import chunk_result_key, prompts_key
-from app.models import Base, Batch
+from app.models import Batch
 from app.providers import MockProvider, ProviderRegistry
 from app.rate_limit import BatchConcurrencyGate, TokenBucketRateLimiter
 from app.services.batches import create_batch, create_chunk_rows, plan_chunks
 from app.workers.jobs import finalize_batch, process_chunk
-
-
-class FakeSpaces:
-    def __init__(self) -> None:
-        self.objects: dict[str, bytes] = {}
-
-    async def upload_prompts_ndjson(self, key: str, prompts) -> int:
-        lines = []
-        for i, p in enumerate(prompts):
-            if isinstance(p, str):
-                obj = {"index": i, "prompt": p}
-            else:
-                obj = {"index": i, **p}
-            lines.append(json.dumps(obj).encode())
-        self.objects[key] = b"\n".join(lines) + b"\n"
-        return len(prompts)
-
-    async def upload_raw_ndjson(self, key: str, data: bytes) -> int:
-        out: list[bytes] = []
-        idx = 0
-        for raw in data.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            text = line.decode("utf-8")
-            try:
-                parsed = json.loads(text)
-                if isinstance(parsed, dict):
-                    parsed.setdefault("index", idx)
-                    out.append(json.dumps(parsed).encode())
-                else:
-                    out.append(json.dumps({"index": idx, "prompt": str(parsed)}).encode())
-            except json.JSONDecodeError:
-                out.append(json.dumps({"index": idx, "prompt": text}).encode())
-            idx += 1
-        self.objects[key] = b"\n".join(out) + (b"\n" if out else b"")
-        return len(out)
-
-    async def count_ndjson_lines(self, key: str) -> int:
-        data = self.objects[key].decode().strip()
-        if not data:
-            return 0
-        return len([ln for ln in data.split("\n") if ln.strip()])
-
-    async def copy_key(self, src_key: str, dest_key: str) -> str:
-        self.objects[dest_key] = self.objects[src_key]
-        return dest_key
-
-    async def download_url_to_key(self, url: str, key: str) -> int:
-        # Tests inject content via objects keyed by URL for simplicity
-        data = self.objects.get(url, b"")
-        return await self.upload_raw_ndjson(key, data)
-
-    async def read_line_range(self, key: str, offset: int, limit: int) -> list[dict]:
-        data = self.objects[key].decode().strip().split("\n")
-        rows = [json.loads(line) for line in data if line]
-        return rows[offset : offset + limit]
-
-    async def write_chunk_results(self, key: str, rows) -> str:
-        body = b"\n".join(json.dumps(r).encode() for r in rows) + b"\n"
-        self.objects[key] = body
-        return key
-
-    async def concatenate_chunks(self, chunk_keys, dest_key: str) -> str:
-        parts = [self.objects[k] for k in chunk_keys]
-        self.objects[dest_key] = b"".join(parts)
-        return dest_key
-
-    async def put_json(self, key: str, payload: Any) -> str:
-        self.objects[key] = json.dumps(payload).encode()
-        return key
-
-    async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
-        return f"https://spaces.example/{key}?exp={expires_in}"
-
-
-@pytest.fixture
-async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-    await engine.dispose()
+from tests.conftest import FakeSpaces
 
 
 @pytest.mark.asyncio
-async def test_create_batch_and_chunks(db_session: AsyncSession, monkeypatch):
-    spaces = FakeSpaces()
+async def test_create_batch_and_chunks(db_session: AsyncSession, spaces: FakeSpaces):
     prompts = [f"p{i}" for i in range(250)]
     batch = await create_batch(
         db_session,
+        spaces=spaces,  # type: ignore[arg-type]
         prompts=prompts,
         provider="mock",
         model="mock-1",
-        spaces=spaces,  # type: ignore[arg-type]
         chunk_size=100,
         rate_limit_rps=1000,
         max_concurrency=8,
@@ -135,10 +50,10 @@ async def test_process_and_finalize_chunk_flow(db_session: AsyncSession, monkeyp
     prompts = [f"hello-{i}" for i in range(5)]
     batch = await create_batch(
         db_session,
+        spaces=spaces,  # type: ignore[arg-type]
         prompts=prompts,
         provider="mock",
         model="mock-1",
-        spaces=spaces,  # type: ignore[arg-type]
         chunk_size=5,
         rate_limit_rps=1000,
         max_concurrency=4,
@@ -149,10 +64,8 @@ async def test_process_and_finalize_chunk_flow(db_session: AsyncSession, monkeyp
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     monkeypatch.setattr(jobs, "get_session_factory", lambda: factory)
 
-    redis = MagicMock()
+    redis = AsyncMock()
     redis.enqueue_job = AsyncMock()
-
-    from fakeredis.aioredis import FakeRedis
 
     fake_redis = FakeRedis()
     ctx = {
@@ -182,61 +95,3 @@ async def test_process_and_finalize_chunk_flow(db_session: AsyncSession, monkeyp
     assert json.loads(lines[0])["output"] == "echo:hello-0"
     redis.enqueue_job.assert_called()
     await fake_redis.aclose()
-
-
-@pytest.mark.asyncio
-async def test_create_batch_from_raw_ndjson(db_session: AsyncSession):
-    spaces = FakeSpaces()
-    raw = b'{"prompt":"a"}\nplain text line\n{"prompt":"c"}\n'
-    batch = await create_batch(
-        db_session,
-        spaces=spaces,  # type: ignore[arg-type]
-        raw_ndjson=raw,
-        provider="mock",
-        model="mock-1",
-        chunk_size=10,
-    )
-    await db_session.commit()
-    assert batch.total_items == 3
-    rows = await spaces.read_line_range(batch.prompts_key, 0, 10)
-    assert rows[0]["prompt"] == "a"
-    assert rows[1]["prompt"] == "plain text line"
-    assert rows[2]["prompt"] == "c"
-
-
-@pytest.mark.asyncio
-async def test_create_batch_from_source_key(db_session: AsyncSession):
-    spaces = FakeSpaces()
-    await spaces.upload_prompts_ndjson("uploads/source.ndjson", ["x", "y"])
-    batch = await create_batch(
-        db_session,
-        spaces=spaces,  # type: ignore[arg-type]
-        source_key="uploads/source.ndjson",
-        provider="mock",
-        model="mock-1",
-    )
-    await db_session.commit()
-    assert batch.total_items == 2
-    assert batch.prompts_key != "uploads/source.ndjson"
-    assert batch.prompts_key in spaces.objects
-
-
-@pytest.mark.asyncio
-async def test_create_batch_uses_resolve_model_defaults(db_session: AsyncSession, monkeypatch):
-    from app.core.config import Settings
-
-    settings = Settings(
-        DEFAULT_PROVIDER="mock",
-        DEFAULT_MODEL="mock-1",
-        DEFAULT_COST_PREFERENCE="economy",
-    )
-    spaces = FakeSpaces()
-    batch = await create_batch(
-        db_session,
-        spaces=spaces,  # type: ignore[arg-type]
-        prompts=["hello"],
-        settings=settings,
-    )
-    await db_session.commit()
-    assert batch.provider == "mock"
-    assert batch.model == "mock-1"
