@@ -25,6 +25,10 @@ fi
 
 echo "post-receive: deploying ${deploy_ref} → ${WORK_TREE}"
 
+# Avoid "dubious ownership" when the hook user differs from the work-tree owner.
+git config --global --add safe.directory "$WORK_TREE"
+git config --global --add safe.directory "$BARE_REPO"
+
 mkdir -p "$WORK_TREE"
 GIT_WORK_TREE="$WORK_TREE" GIT_DIR="$BARE_REPO" git checkout -f "${deploy_ref#refs/heads/}"
 

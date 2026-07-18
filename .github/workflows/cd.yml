@@ -119,6 +119,8 @@ jobs:
           envs: GH_TOKEN,REPO,REF
           script: |
             set -euo pipefail
+            # Git refuses commands if the work tree is owned by another user (common on Droplets).
+            git config --global --add safe.directory /opt/batch-inference
             cd /opt/batch-inference
 
             # Prefer HTTPS + GITHUB_TOKEN so a private repo can be pulled without a deploy key.

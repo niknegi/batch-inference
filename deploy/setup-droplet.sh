@@ -19,6 +19,10 @@ fi
 echo "==> Creating work tree at ${WORK_TREE}"
 mkdir -p "$WORK_TREE"
 
+echo "==> Marking repos as safe.directory for git"
+git config --global --add safe.directory "$WORK_TREE"
+git config --global --add safe.directory "$BARE_REPO"
+
 echo "==> Installing post-receive hook"
 install -m 0755 "${HOOK_SRC_DIR}/post-receive" "${BARE_REPO}/hooks/post-receive"
 
@@ -49,6 +53,8 @@ if [ -z "\$deploy_ref" ]; then
 fi
 
 echo "post-receive: deploying \${deploy_ref} → \${WORK_TREE}"
+git config --global --add safe.directory "\$WORK_TREE"
+git config --global --add safe.directory "\$BARE_REPO"
 mkdir -p "\$WORK_TREE"
 GIT_WORK_TREE="\$WORK_TREE" GIT_DIR="\$BARE_REPO" git checkout -f "\${deploy_ref#refs/heads/}"
 cd "\$WORK_TREE"
