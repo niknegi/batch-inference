@@ -122,6 +122,8 @@ jobs:
             # Git refuses commands if the work tree is owned by another user (common on Droplets).
             git config --global --add safe.directory /opt/batch-inference
             cd /opt/batch-inference
+            # Align ownership with the SSH deploy user (often root vs uid 1000 from earlier clones).
+            chown -R "$(id -u):$(id -g)" /opt/batch-inference || true
 
             # Prefer HTTPS + GITHUB_TOKEN so a private repo can be pulled without a deploy key.
             if [ -n "${GH_TOKEN:-}" ]; then
@@ -129,8 +131,15 @@ jobs:
             fi
 
             git fetch --prune origin
-            git checkout -B master "origin/master" 2>/dev/null \
-              || git checkout -B main "origin/main"
+            # Force-update local branch: Droplet work trees often have dirty files from prior deploys.
+            if git rev-parse --verify -q refs/remotes/origin/master >/dev/null; then
+              git checkout -f -B master origin/master
+            elif git rev-parse --verify -q refs/remotes/origin/main >/dev/null; then
+              git checkout -f -B main origin/main
+            else
+              echo "ERROR: neither origin/master nor origin/main found after fetch" >&2
+              exit 1
+            fi
 
             GIT_SHA="$(git rev-parse --short HEAD)"
             BUILD_ID="${REF}"
