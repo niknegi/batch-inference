@@ -361,11 +361,13 @@ curl -s -X POST "http://localhost:8000/v1/batches" \
 
 ## 11. Realtime webhook
 
-End-to-end check that the API POSTs a signed webhook when a batch finishes. Shared test inbox (ephemeral — anyone can regenerate a new one on [webhook.site](https://webhook.site) if this expires or fills up):
+End-to-end check that the API POSTs a signed webhook when a batch finishes.
+
+**Shared test inbox** (ephemeral — regenerate on [webhook.site](https://webhook.site) if this expires):
 
 `https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e`
 
-Open that URL in the browser to watch requests arrive. If you need a private inbox, create a new token at webhook.site and substitute your URL below.
+**Secret:** always pass `"webhook_secret": "test-secret-123"` (create/get responses never return the secret). Use that same value for HMAC verify below.
 
 **Headers on every delivery**
 
@@ -375,11 +377,15 @@ Open that URL in the browser to watch requests arrive. If you need a private inb
 | `X-Webhook-Event` | e.g. `webhook.test`, `batch.completed`, `batch.failed` |
 | `X-Batch-Id` | Batch id (or `"test"` for the ping endpoint) |
 
-**Secret note:** Create/get responses do **not** return `webhook_secret`. If you omit it on create, the API auto-generates one and stores it server-side only — you cannot verify HMAC locally. Pass an explicit `"webhook_secret"` in the create body (and in `/v1/webhooks/test`) so you can check the signature yourself.
+### Copy-paste steps
 
-### Step A — Optional ping (`POST /v1/webhooks/test`)
+**1. Open the inbox in a browser**
 
-Verifies delivery + signature headers before running a real batch. Uses the shared webhook.site URL above (swap if you regenerated).
+Open [https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e](https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e) and leave it open to watch requests arrive.
+
+**2. Optional ping** (`POST /v1/webhooks/test`)
+
+Verifies delivery + signature headers before running a real batch:
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
@@ -395,9 +401,9 @@ Expected API response: `{"ok": true, "error": null}`.
 
 On webhook.site you should see a POST with `event: webhook.test` and headers `X-Webhook-Signature`, `X-Webhook-Event: webhook.test`, `X-Batch-Id: test`.
 
-### Step B — Create a small live batch with `webhook_url`
+**3. Create a small DigitalOcean batch with webhook + secret**
 
-This Droplet runs `MOCK_PROVIDER=false`, so use **digitalocean** + `openai-gpt-oss-20b` (not mock) to get a real `batch.completed` event. Pass an explicit secret for local HMAC verify.
+This Droplet runs `MOCK_PROVIDER=false` — use **digitalocean** + `openai-gpt-oss-20b` (not mock).
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
@@ -419,7 +425,9 @@ curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
   }'
 ```
 
-Save the returned `id` (example capture):
+**4. Capture `BATCH_ID` from the response**
+
+Either copy `id` from the JSON above, or create + capture in one shot:
 
 ```bash
 BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
@@ -442,7 +450,7 @@ BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
 echo "BATCH_ID=$BATCH_ID"
 ```
 
-### Step C — Poll until completed, then check webhook.site
+**5. Poll `GET` until the batch completes**
 
 ```bash
 while true; do
@@ -454,19 +462,22 @@ while true; do
 done
 ```
 
-When `status` is `completed`, open webhook.site and look for a POST with:
+**6. Refresh webhook.site and confirm `batch.completed`**
 
+When `status` is `completed`, refresh [https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e](https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e) and look for a POST with:
+
+- `X-Webhook-Signature: sha256=...`
 - `X-Webhook-Event: batch.completed`
-- `X-Batch-Id: <your batch id>`
+- `X-Batch-Id: <your BATCH_ID>`
 - JSON body including `"event": "batch.completed"`, `"batch_id"`, `"status": "completed"`, `stats`, `result_url`, `completed_at`, `timestamp`
 
-`webhook_status` on the batch should move to `delivered` (or `dead` after retries if the URL was unreachable).
+On the batch, `webhook_status` should move to `delivered` (or `dead` after retries if the URL was unreachable).
 
-### Verify HMAC locally
+**7. Optional — verify HMAC with `test-secret-123`**
 
-Copy the **raw body** from webhook.site (exact bytes matter — no pretty-print). With the secret you passed at create time:
+Copy the **raw body** from webhook.site (exact bytes — no pretty-print).
 
-**Python:**
+Python:
 
 ```bash
 python3 - <<'PY'
@@ -478,10 +489,9 @@ print("sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest())
 PY
 ```
 
-**OpenSSL** (pipe the raw body file):
+OpenSSL (save raw body from webhook.site into `/tmp/webhook-body.json` first):
 
 ```bash
-# Save raw body from webhook.site into /tmp/webhook-body.json (exact bytes)
 printf 'sha256='; openssl dgst -sha256 -hmac 'test-secret-123' /tmp/webhook-body.json | awk '{print $2}'
 ```
 
