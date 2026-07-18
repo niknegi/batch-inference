@@ -17,11 +17,16 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
     spaces_endpoint_url: str = Field(default="http://localhost:9000", alias="SPACES_ENDPOINT_URL")
+    # Optional public/base URL for presigned links only (e.g. http://DROPLET_IP:9000).
+    # Keep SPACES_ENDPOINT_URL as the internal Docker hostname for server-side S3 ops.
+    spaces_public_endpoint_url: str | None = Field(default=None, alias="SPACES_PUBLIC_ENDPOINT_URL")
     spaces_access_key: str = Field(default="minioadmin", alias="SPACES_ACCESS_KEY")
     spaces_secret_key: str = Field(default="minioadmin", alias="SPACES_SECRET_KEY")
     spaces_bucket: str = Field(default="batch-inference", alias="SPACES_BUCKET")
     spaces_region: str = Field(default="us-east-1", alias="SPACES_REGION")
     spaces_force_path_style: bool = Field(default=True, alias="SPACES_FORCE_PATH_STYLE")
+    # Optional public API base (e.g. http://DROPLET_IP:8000) for webhook result_url when MinIO stays private.
+    public_base_url: str | None = Field(default=None, alias="PUBLIC_BASE_URL")
 
     worker_concurrency: int = Field(default=32, alias="WORKER_CONCURRENCY")
     default_chunk_size: int = Field(default=100, alias="DEFAULT_CHUNK_SIZE")

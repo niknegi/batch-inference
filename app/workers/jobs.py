@@ -437,10 +437,15 @@ async def deliver_batch_webhook(ctx: dict[str, Any], batch_id: str, event: str) 
 
         result_url = None
         if batch.results_key:
-            try:
-                result_url = await spaces.generate_presigned_url(batch.results_key)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("presign_failed", error=str(exc))
+            public_base = (settings.public_base_url or "").strip().rstrip("/")
+            if public_base:
+                # Prefer API streaming URL when MinIO stays private.
+                result_url = f"{public_base}/v1/batches/{batch_id}/results"
+            else:
+                try:
+                    result_url = await spaces.generate_presigned_url(batch.results_key)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("presign_failed", error=str(exc))
 
         payload = build_webhook_payload(
             event=event,

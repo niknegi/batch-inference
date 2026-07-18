@@ -200,6 +200,14 @@ Deliveries retry with exponential backoff (cap 5m, `WEBHOOK_MAX_ATTEMPTS` then `
    SPACES_BUCKET=your-bucket
    SPACES_FORCE_PATH_STYLE=false
    ```
+   For Compose + MinIO on a Droplet, keep the internal endpoint for server ops and optionally set a public rewrite for presigned redirects only:
+   ```bash
+   SPACES_ENDPOINT_URL=http://minio:9000
+   # Optional — only if you expose MinIO and use ?redirect=true
+   # SPACES_PUBLIC_ENDPOINT_URL=http://YOUR_DROPLET_IP:9000
+   PUBLIC_BASE_URL=http://YOUR_DROPLET_IP:8000
+   ```
+   Prefer downloading results via authenticated `GET /v1/batches/{id}/results` (API streams NDJSON; MinIO can stay private).
 2. **Managed Postgres** → `DATABASE_URL=postgresql+asyncpg://...`
 3. **Managed Redis** → `REDIS_URL=rediss://...` (or `redis://`)
 4. Run **API** (stateless, horizontally scalable) and **N worker** replicas:

@@ -13,7 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +66,11 @@ def _to_response(batch: Batch, result_url: str | None = None) -> BatchResponse:
         started_at=batch.started_at,
         completed_at=batch.completed_at,
     )
+
+
+def _api_results_url(request: Request, batch_id: str) -> str:
+    """Client-reachable URL for authenticated results streaming."""
+    return f"{str(request.base_url).rstrip('/')}/v1/batches/{batch_id}/results"
 
 
 async def get_arq(request: Request) -> ArqRedis:
@@ -204,19 +209,15 @@ async def list_batches_endpoint(
 @router.get("/v1/batches/{batch_id}", response_model=BatchResponse, tags=["batches"])
 async def get_batch_endpoint(
     batch_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
-    spaces: SpacesClient = Depends(get_spaces),
 ) -> BatchResponse:
     batch = await get_batch(session, batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    result_url = None
-    if batch.results_key:
-        try:
-            result_url = await spaces.generate_presigned_url(batch.results_key)
-        except Exception:  # noqa: BLE001
-            result_url = None
+    # Authenticated API streaming URL — usable without exposing MinIO.
+    result_url = _api_results_url(request, batch_id) if batch.results_key else None
     return _to_response(batch, result_url=result_url)
 
 
@@ -226,17 +227,29 @@ async def get_batch_results(
     session: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
     spaces: SpacesClient = Depends(get_spaces),
-    redirect: bool = True,
+    redirect: bool = False,
 ):
+    """Return completed batch NDJSON.
+
+    Default: stream the object through the API (MinIO can stay private).
+    ``redirect=true``: 302 to a Spaces presigned URL (requires reachable
+    ``SPACES_PUBLIC_ENDPOINT_URL`` or a publicly reachable Spaces endpoint).
+    """
     batch = await get_batch(session, batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if not batch.results_key:
         raise HTTPException(status_code=409, detail="Results not ready")
-    url = await spaces.generate_presigned_url(batch.results_key)
     if redirect:
+        url = await spaces.generate_presigned_url(batch.results_key)
         return RedirectResponse(url=url, status_code=302)
-    return {"result_url": url, "results_key": batch.results_key, "manifest_key": batch.manifest_key}
+    return StreamingResponse(
+        spaces.stream_object(batch.results_key),
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": f'attachment; filename="{batch_id}-results.ndjson"',
+        },
+    )
 
 
 @router.post("/v1/batches/{batch_id}/cancel", response_model=BatchResponse, tags=["batches"])

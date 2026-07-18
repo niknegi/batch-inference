@@ -147,7 +147,7 @@ curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
   -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
-Watch for `status` (`queued` → `running` → `completed` / `failed` / `cancelled`) and `progress.fraction`. When done, `result_url` may be present (presigned Spaces URL).
+Watch for `status` (`queued` → `running` → `completed` / `failed` / `cancelled`) and `progress.fraction`. When done, `result_url` points at the authenticated API results endpoint (stream through the API — MinIO stays private).
 
 Poll until complete:
 
@@ -184,19 +184,34 @@ curl -s "http://167.71.233.238:8000/v1/batches?limit=50&offset=0" \
 
 ## 6. Get results (when completed)
 
-Only works after the batch has finished and `results_key` is set. By default the endpoint **302-redirects** to a presigned Spaces URL.
+Only works after the batch has finished and `results_key` is set. The endpoint **streams NDJSON through the API** (auth required). MinIO does not need to be publicly reachable.
 
-Follow redirect and print NDJSON results:
+Download / print NDJSON for a completed batch (example id):
 
 ```bash
-curl -sL "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results" \
+curl -s "http://167.71.233.238:8000/v1/batches/01KXT1PCPKM0K4Y0SXAF973NH6/results" \
   -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
-JSON with URL only (no redirect):
+Or with `$BATCH_ID` from create/poll:
 
 ```bash
-curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results?redirect=false" \
+curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results" \
+  -H "Authorization: Bearer demo-api-key-local-test"
+```
+
+Save to a file:
+
+```bash
+curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -o results.ndjson
+```
+
+Optional: `?redirect=true` 302s to a Spaces presigned URL. That only works if `SPACES_PUBLIC_ENDPOINT_URL` is set to a browser-reachable MinIO/Spaces host (and port 9000 is published). Prefer the default stream path above.
+
+```bash
+curl -sI "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results?redirect=true" \
   -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
@@ -335,6 +350,7 @@ On a real batch you can also pass `"webhook_url": "https://..."` in the create J
 | Using `provider: mock` / mock sample JSON on prod | Create fails — mock not registered | Use section 2 or `samples/*_live.json` |
 | Typo in path | `404` | Paths are `/health`, `/v1/batches`, `/v1/batches/{id}/results`, etc. |
 | Results too early | `409 Results not ready` | Wait until get-by-id shows `completed` |
+| Opening `result_url` that contains `minio:9000` | Browser DNS / connection failure | Use `GET /v1/batches/{id}/results` with the API key (streams NDJSON). Do not open internal Docker hostnames. |
 | Missing DO key on Droplet | Live batch fails | Ensure `DO_INFERENCE_API_KEY` is set and `MOCK_PROVIDER=false` |
 
 Quick sanity check that base URL + key work:

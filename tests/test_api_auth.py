@@ -126,3 +126,68 @@ def test_list_batches_returns_newest_first(api_env):
     assert first.json()["id"] in ids
     assert ids.index(second.json()["id"]) < ids.index(first.json()["id"])
     assert all("status" in item and "progress" in item for item in body["items"])
+
+
+async def _mark_batch_completed(factory, batch_id: str, results_key: str) -> None:
+    from sqlalchemy import select
+
+    from app.models import Batch, BatchStatus
+
+    async with factory() as session:
+        batch = (await session.execute(select(Batch).where(Batch.id == batch_id))).scalar_one()
+        batch.status = BatchStatus.completed
+        batch.results_key = results_key
+        await session.commit()
+
+
+def test_get_batch_results_streams_ndjson(api_env):
+    import asyncio
+
+    client, spaces, _, _, factory = api_env
+    headers = {"Authorization": "Bearer test-api-key"}
+    created = client.post(
+        "/v1/batches",
+        headers=headers,
+        json={"prompts": ["a"], "provider": "mock", "model": "mock-1"},
+    )
+    assert created.status_code == 202
+    batch_id = created.json()["id"]
+
+    results_key = f"batches/{batch_id}/results.ndjson"
+    spaces.objects[results_key] = b'{"index":0,"text":"hello"}\n'
+    asyncio.run(_mark_batch_completed(factory, batch_id, results_key))
+
+    status = client.get(f"/v1/batches/{batch_id}", headers=headers)
+    assert status.status_code == 200
+    body = status.json()
+    assert body["result_url"] == f"http://testserver/v1/batches/{batch_id}/results"
+
+    resp = client.get(f"/v1/batches/{batch_id}/results", headers=headers)
+    assert resp.status_code == 200
+    assert "application/x-ndjson" in resp.headers["content-type"]
+    assert b'"text":"hello"' in resp.content
+
+
+def test_get_batch_results_redirect_optional(api_env):
+    import asyncio
+
+    client, spaces, _, _, factory = api_env
+    headers = {"Authorization": "Bearer test-api-key"}
+    created = client.post(
+        "/v1/batches",
+        headers=headers,
+        json={"prompts": ["a"], "provider": "mock", "model": "mock-1"},
+    )
+    batch_id = created.json()["id"]
+    results_key = f"batches/{batch_id}/results.ndjson"
+    spaces.objects[results_key] = b'{"index":0}\n'
+    asyncio.run(_mark_batch_completed(factory, batch_id, results_key))
+
+    resp = client.get(
+        f"/v1/batches/{batch_id}/results",
+        headers=headers,
+        params={"redirect": "true"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert results_key in resp.headers["location"]

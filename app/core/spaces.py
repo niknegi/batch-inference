@@ -22,10 +22,10 @@ class SpacesClient:
         self.settings = settings or get_settings()
         self._session = aioboto3.Session()
 
-    def _client_kwargs(self) -> dict[str, Any]:
+    def _client_kwargs(self, *, endpoint_url: str | None = None) -> dict[str, Any]:
         return {
             "service_name": "s3",
-            "endpoint_url": self.settings.spaces_endpoint_url,
+            "endpoint_url": endpoint_url or self.settings.spaces_endpoint_url,
             "aws_access_key_id": self.settings.spaces_access_key,
             "aws_secret_access_key": self.settings.spaces_secret_key,
             "region_name": self.settings.spaces_region,
@@ -35,8 +35,8 @@ class SpacesClient:
         }
 
     @asynccontextmanager
-    async def _client(self):
-        async with self._session.client(**self._client_kwargs()) as client:
+    async def _client(self, *, endpoint_url: str | None = None):
+        async with self._session.client(**self._client_kwargs(endpoint_url=endpoint_url)) as client:
             yield client
 
     @property
@@ -193,12 +193,29 @@ class SpacesClient:
         return dest_key
 
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
-        async with self._client() as client:
+        """Sign a GET URL.
+
+        Uses ``SPACES_PUBLIC_ENDPOINT_URL`` when set so clients outside Docker can
+        open the link. Signing is local (no network call to the endpoint).
+        """
+        public = (self.settings.spaces_public_endpoint_url or "").strip() or None
+        async with self._client(endpoint_url=public) as client:
             return await client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": self.bucket, "Key": key},
                 ExpiresIn=expires_in,
             )
+
+    async def stream_object(self, key: str) -> AsyncIterator[bytes]:
+        """Yield raw object bytes in chunks (keeps the S3 client open while streaming)."""
+        async with self._client() as client:
+            resp = await client.get_object(Bucket=self.bucket, Key=key)
+            body = resp["Body"]
+            while True:
+                chunk = await body.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
 
     async def get_bytes(self, key: str) -> bytes:
         async with self._client() as client:

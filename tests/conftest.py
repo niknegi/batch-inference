@@ -87,6 +87,15 @@ class FakeSpaces:
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         return f"https://spaces.example/{key}?exp={expires_in}"
 
+    async def stream_object(self, key: str):
+        data = self.objects[key]
+        # Yield in two chunks when large enough so StreamingResponse path is exercised.
+        mid = max(1, len(data) // 2) if len(data) > 1 else len(data)
+        if data[:mid]:
+            yield data[:mid]
+        if data[mid:]:
+            yield data[mid:]
+
 
 @pytest.fixture
 async def db_session():
