@@ -17,7 +17,7 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
-def test_resolve_model_economy_picks_cheap_llama():
+def test_resolve_model_economy_picks_cheap_model():
     choice = resolve_model(
         provider="digitalocean",
         model=None,
@@ -25,7 +25,7 @@ def test_resolve_model_economy_picks_cheap_llama():
         settings=_settings(),
     )
     assert choice.provider == "digitalocean"
-    assert choice.model == "llama3.2-3b-instruct"
+    assert choice.model == "openai-gpt-oss-20b"
     assert choice.cost_tier == "economy"
     assert "cost_preference" in choice.reason or choice.reason == "cheapest_available"
 
@@ -50,7 +50,7 @@ def test_resolve_model_invalid_preference_falls_back_to_economy():
         settings=_settings(DEFAULT_COST_PREFERENCE="premium"),
     )
     assert choice.cost_tier == "economy"
-    assert choice.model == "llama3.2-3b-instruct"
+    assert choice.model == "openai-gpt-oss-20b"
 
 
 def test_resolve_model_settings_default_when_fits_tier():
@@ -58,9 +58,9 @@ def test_resolve_model_settings_default_when_fits_tier():
         provider="digitalocean",
         model=None,
         cost_preference="economy",
-        settings=_settings(DEFAULT_MODEL="llama3-8b-instruct"),
+        settings=_settings(DEFAULT_MODEL="openai-gpt-oss-120b"),
     )
-    assert choice.model == "llama3-8b-instruct"
+    assert choice.model == "openai-gpt-oss-120b"
     assert choice.reason == "settings_default_model"
 
 

@@ -55,7 +55,7 @@ curl -s -X POST http://localhost:8000/v1/batches \
   }'
 ```
 
-`provider`, `model`, and `cost_preference` are optional — they fall back to `DEFAULT_PROVIDER`, `DEFAULT_MODEL`, and `DEFAULT_COST_PREFERENCE` (economy routing prefers small Llama models when applicable).
+`provider`, `model`, and `cost_preference` are optional — they fall back to `DEFAULT_PROVIDER`, `DEFAULT_MODEL`, and `DEFAULT_COST_PREFERENCE` (economy routing prefers cheap catalog models such as `openai-gpt-oss-20b` when applicable).
 
 You can also supply prompts without inlining them:
 
@@ -123,7 +123,7 @@ Set env vars and pass `provider` on create (or rely on defaults):
 | Env | Default | Purpose |
 |-----|---------|---------|
 | `DEFAULT_PROVIDER` | `mock` | Used when create omits `provider` |
-| `DEFAULT_MODEL` | `llama3.2-3b-instruct` | Used when create omits `model` (if it fits `cost_preference`) |
+| `DEFAULT_MODEL` | `openai-gpt-oss-20b` | Used when create omits `model` (if it fits `cost_preference`) |
 | `DEFAULT_COST_PREFERENCE` | `economy` | Prefer cheap catalog models unless overridden |
 
 | `provider` | Config |

@@ -21,12 +21,12 @@ MODEL_CATALOG: dict[str, dict[str, int]] = {
         "mock-1": 0,
     },
     "digitalocean": {
-        # Prefer small Llama / economy instruct models for batch work
-        "llama3.2-3b-instruct": 1,
-        "llama3-8b-instruct": 2,
-        "meta-llama/Meta-Llama-3.1-8B-Instruct": 2,
+        # IDs from GET https://inference.do-ai.run/v1/models (lower = cheaper)
+        "openai-gpt-oss-20b": 1,
+        "openai-gpt-oss-120b": 2,
+        "openai-gpt-4o-mini": 2,
+        "deepseek-3.2": 6,
         "llama3.3-70b-instruct": 8,
-        "deepseek-v3.2": 6,
     },
     "openai": {
         "gpt-4o-mini": 2,
@@ -121,7 +121,7 @@ def resolve_model(
             reason="cheapest_available",
         )
 
-    fallback = settings.default_model or "llama3.2-3b-instruct"
+    fallback = settings.default_model or "openai-gpt-oss-20b"
     return ModelChoice(
         provider=resolved_provider,
         model=fallback,

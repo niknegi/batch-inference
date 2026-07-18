@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     default_max_concurrency: int = Field(default=16, alias="DEFAULT_MAX_CONCURRENCY")
 
     default_provider: str = Field(default="mock", alias="DEFAULT_PROVIDER")
-    default_model: str = Field(default="llama3.2-3b-instruct", alias="DEFAULT_MODEL")
+    default_model: str = Field(default="openai-gpt-oss-20b", alias="DEFAULT_MODEL")
     default_cost_preference: str = Field(default="economy", alias="DEFAULT_COST_PREFERENCE")
 
     @property
