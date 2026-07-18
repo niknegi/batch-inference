@@ -1,0 +1,46 @@
+#!/bin/bash
+# Git post-receive hook — deploy batch-inference on push to the Droplet.
+# Installed into: /opt/batch-inference.git/hooks/post-receive
+set -euo pipefail
+
+REPO_NAME="batch-inference"
+WORK_TREE="${DEPLOY_WORK_TREE:-/opt/${REPO_NAME}}"
+BARE_REPO="${DEPLOY_BARE_REPO:-/opt/${REPO_NAME}.git}"
+BRANCH_MAIN="refs/heads/master"
+BRANCH_ALT="refs/heads/main"
+
+deploy_ref=""
+while read -r _oldrev newrev refname; do
+  if [ "$refname" = "$BRANCH_MAIN" ] || [ "$refname" = "$BRANCH_ALT" ]; then
+    if [ "$newrev" != "0000000000000000000000000000000000000000" ]; then
+      deploy_ref="$refname"
+    fi
+  fi
+done
+
+if [ -z "$deploy_ref" ]; then
+  echo "post-receive: no master/main update — skipping deploy"
+  exit 0
+fi
+
+echo "post-receive: deploying ${deploy_ref} → ${WORK_TREE}"
+
+mkdir -p "$WORK_TREE"
+GIT_WORK_TREE="$WORK_TREE" GIT_DIR="$BARE_REPO" git checkout -f "${deploy_ref#refs/heads/}"
+
+cd "$WORK_TREE"
+
+if [ ! -f .env ]; then
+  echo "WARN: ${WORK_TREE}/.env missing — copy from your secrets before first boot"
+fi
+
+if command -v docker >/dev/null 2>&1; then
+  echo "post-receive: docker compose up --build -d"
+  docker compose up --build -d
+  docker compose ps
+else
+  echo "post-receive: docker not found — install Docker or start services manually"
+  exit 1
+fi
+
+echo "post-receive: deploy complete"

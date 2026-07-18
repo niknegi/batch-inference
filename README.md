@@ -227,6 +227,40 @@ Tag a release to publish a semver image:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
+### Deploy on push (DigitalOcean Droplet)
+
+Auto-update the Droplet when you push via a **bare git repo + `post-receive` hook**.
+
+**On the Droplet (once):**
+
+```bash
+# Install Docker Engine + Compose plugin first, then:
+git clone https://github.com/niknegi/batch-inference.git /tmp/batch-setup
+sudo bash /tmp/batch-setup/deploy/setup-droplet.sh
+
+# Create production env (not in git):
+sudo nano /opt/batch-inference/.env
+```
+
+This creates:
+
+| Path | Role |
+|------|------|
+| `/opt/batch-inference.git` | Bare repo you push to |
+| `/opt/batch-inference` | Checked-out app + `docker compose` |
+| `.../hooks/post-receive` | On push → `git checkout -f` + `docker compose up --build -d` |
+
+**On your laptop:**
+
+```bash
+git remote add droplet root@YOUR_DROPLET_IP:/opt/batch-inference.git
+git push droplet master
+```
+
+Use `master` or `main` — the hook accepts both. Scripts live in [`deploy/`](deploy/).
+
+> Prefer GitHub → Droplet only: push to `origin`, then SSH and `git pull` in `/opt/batch-inference`, or add a GitHub Action that SSHes and pulls. The `droplet` remote is the simplest auto-deploy path.
+
 ## License
 
 MIT
