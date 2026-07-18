@@ -63,6 +63,8 @@ async def test_deliver_webhook_success_signed():
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["sig"] = request.headers.get("x-webhook-signature")
+        seen["event"] = request.headers.get("x-webhook-event")
+        seen["batch_id"] = request.headers.get("x-batch-id")
         seen["body"] = request.content
         return httpx.Response(204)
 
@@ -74,6 +76,8 @@ async def test_deliver_webhook_success_signed():
     assert ok is True
     assert err is None
     assert seen["sig"] == sign_payload("topsecret", seen["body"])
+    assert seen["event"] == "batch.completed"
+    assert seen["batch_id"] == "b1"
     # body matches canonical JSON used by deliver_webhook
     assert json.loads(seen["body"])["batch_id"] == "b1"
 

@@ -23,20 +23,32 @@ Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 7. [Cancel a batch](#7-cancel-a-batch)
 8. [Multipart NDJSON / file upload](#8-multipart-ndjson--file-upload)
 9. [Mock provider (local / CI only)](#9-mock-provider-local--ci-only)
-10. [Webhook test](#10-webhook-test)
+10. [Realtime webhook](#10-realtime-webhook)
 11. [Common mistakes](#11-common-mistakes)
 
 ---
 
 ## 1. Health check
 
-No auth required. Confirms the API process is up.
+No auth required. Confirms the API process is up and which build is running.
 
 ```bash
 curl -s "http://167.71.233.238:8000/health"
 ```
 
-Expected shape: `{"status":"ok","version":"..."}`.
+Expected shape:
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.1",
+  "git_sha": "c69095c",
+  "build_id": "c69095c...",
+  "built_at": "2026-07-18T07:45:00Z"
+}
+```
+
+After a deploy, `git_sha` / `built_at` should match the commit you just pushed (or the manual deploy). If `git_sha` is `"unknown"`, the Droplet `.env` was not updated with `GIT_SHA`.
 
 ---
 
@@ -318,11 +330,23 @@ curl -s -X POST "http://localhost:8000/v1/batches" \
 
 ---
 
-## 10. Webhook test
+## 10. Realtime webhook
 
-Pings an arbitrary HTTPS endpoint with a signed test payload (`event: webhook.test`). Useful to verify your receiver and firewall before attaching `webhook_url` on a real batch.
+End-to-end check that the API POSTs a signed webhook when a batch finishes. Use [webhook.site](https://webhook.site): open the site, copy your unique URL (`https://webhook.site/<uuid>`), and watch requests arrive in the browser.
 
-Replace the URL with your own webhook.site / RequestBin / ngrok URL:
+**Headers on every delivery**
+
+| Header | Meaning |
+|--------|---------|
+| `X-Webhook-Signature` | `sha256=<hex>` HMAC-SHA256 of the **raw request body** using `webhook_secret` |
+| `X-Webhook-Event` | e.g. `webhook.test`, `batch.completed`, `batch.failed` |
+| `X-Batch-Id` | Batch id (or `"test"` for the ping endpoint) |
+
+**Secret note:** Create/get responses do **not** return `webhook_secret`. If you omit it on create, the API auto-generates one and stores it server-side only — you cannot verify HMAC locally. Pass an explicit `"webhook_secret"` in the create body (and in `/v1/webhooks/test`) so you can check the signature yourself.
+
+### Step A — Optional ping (`POST /v1/webhooks/test`)
+
+Verifies delivery + signature headers before running a real batch. Replace `YOUR-UUID` with your webhook.site id.
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
@@ -330,13 +354,105 @@ curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://webhook.site/YOUR-UUID",
-    "secret": "optional-shared-secret"
+    "secret": "test-secret-123"
   }'
 ```
 
-Expected: `{"ok": true, "error": null}` if delivery succeeded.
+Expected API response: `{"ok": true, "error": null}`.
 
-On a real batch you can also pass `"webhook_url": "https://..."` in the create JSON (section 2).
+On webhook.site you should see a POST with `event: webhook.test` and headers `X-Webhook-Signature`, `X-Webhook-Event: webhook.test`, `X-Batch-Id: test`.
+
+### Step B — Create a small live batch with `webhook_url`
+
+This Droplet runs `MOCK_PROVIDER=false`, so use **digitalocean** + `openai-gpt-oss-20b` (not mock) to get a real `batch.completed` event. Pass an explicit secret for local HMAC verify.
+
+```bash
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: webhook-live-$(date +%s)" \
+  -d '{
+    "prompts": [
+      "What is the capital of France?",
+      "Name one primary color."
+    ],
+    "provider": "digitalocean",
+    "model": "openai-gpt-oss-20b",
+    "chunk_size": 1,
+    "rate_limit_rps": 5,
+    "max_concurrency": 2,
+    "webhook_url": "https://webhook.site/YOUR-UUID",
+    "webhook_secret": "test-secret-123"
+  }'
+```
+
+Save the returned `id` (example capture):
+
+```bash
+BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: webhook-live-$(date +%s)" \
+  -d '{
+    "prompts": [
+      "What is the capital of France?",
+      "Name one primary color."
+    ],
+    "provider": "digitalocean",
+    "model": "openai-gpt-oss-20b",
+    "chunk_size": 1,
+    "rate_limit_rps": 5,
+    "max_concurrency": 2,
+    "webhook_url": "https://webhook.site/YOUR-UUID",
+    "webhook_secret": "test-secret-123"
+  }' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "BATCH_ID=$BATCH_ID"
+```
+
+### Step C — Poll until completed, then check webhook.site
+
+```bash
+while true; do
+  curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
+    -H "Authorization: Bearer demo-api-key-local-test" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d.get('webhook_status'), d.get('progress')); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
+    && break
+  sleep 2
+done
+```
+
+When `status` is `completed`, open webhook.site and look for a POST with:
+
+- `X-Webhook-Event: batch.completed`
+- `X-Batch-Id: <your batch id>`
+- JSON body including `"event": "batch.completed"`, `"batch_id"`, `"status": "completed"`, `stats`, `result_url`, `completed_at`, `timestamp`
+
+`webhook_status` on the batch should move to `delivered` (or `dead` after retries if the URL was unreachable).
+
+### Verify HMAC locally
+
+Copy the **raw body** from webhook.site (exact bytes matter — no pretty-print). With the secret you passed at create time:
+
+**Python:**
+
+```bash
+python3 - <<'PY'
+import hashlib, hmac
+secret = "test-secret-123"
+# Paste the exact raw body string from webhook.site:
+body = b'{"event":"batch.completed",...}'  # replace with exact bytes
+print("sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest())
+PY
+```
+
+**OpenSSL** (pipe the raw body file):
+
+```bash
+# Save raw body from webhook.site into /tmp/webhook-body.json (exact bytes)
+printf 'sha256='; openssl dgst -sha256 -hmac 'test-secret-123' /tmp/webhook-body.json | awk '{print $2}'
+```
+
+That value must match `X-Webhook-Signature`.
 
 ---
 
