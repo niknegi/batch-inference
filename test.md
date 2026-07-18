@@ -361,7 +361,11 @@ curl -s -X POST "http://localhost:8000/v1/batches" \
 
 ## 11. Realtime webhook
 
-End-to-end check that the API POSTs a signed webhook when a batch finishes. Use [webhook.site](https://webhook.site): open the site, copy your unique URL (`https://webhook.site/<uuid>`), and watch requests arrive in the browser.
+End-to-end check that the API POSTs a signed webhook when a batch finishes. Shared test inbox (ephemeral — anyone can regenerate a new one on [webhook.site](https://webhook.site) if this expires or fills up):
+
+`https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e`
+
+Open that URL in the browser to watch requests arrive. If you need a private inbox, create a new token at webhook.site and substitute your URL below.
 
 **Headers on every delivery**
 
@@ -375,14 +379,14 @@ End-to-end check that the API POSTs a signed webhook when a batch finishes. Use 
 
 ### Step A — Optional ping (`POST /v1/webhooks/test`)
 
-Verifies delivery + signature headers before running a real batch. Replace `YOUR-UUID` with your webhook.site id.
+Verifies delivery + signature headers before running a real batch. Uses the shared webhook.site URL above (swap if you regenerated).
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
   -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://webhook.site/YOUR-UUID",
+    "url": "https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e",
     "secret": "test-secret-123"
   }'
 ```
@@ -410,7 +414,7 @@ curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
     "chunk_size": 1,
     "rate_limit_rps": 5,
     "max_concurrency": 2,
-    "webhook_url": "https://webhook.site/YOUR-UUID",
+    "webhook_url": "https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e",
     "webhook_secret": "test-secret-123"
   }'
 ```
@@ -432,7 +436,7 @@ BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
     "chunk_size": 1,
     "rate_limit_rps": 5,
     "max_concurrency": 2,
-    "webhook_url": "https://webhook.site/YOUR-UUID",
+    "webhook_url": "https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e",
     "webhook_secret": "test-secret-123"
   }' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "BATCH_ID=$BATCH_ID"
