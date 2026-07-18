@@ -25,7 +25,8 @@ Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 9. [Multipart NDJSON / file upload](#9-multipart-ndjson--file-upload)
 10. [Mock provider (local / CI only)](#10-mock-provider-local--ci-only)
 11. [Realtime webhook](#11-realtime-webhook)
-12. [Common mistakes](#12-common-mistakes)
+12. [1000 prompts + webhook file](#12-1000-prompts--webhook-file)
+13. [Common mistakes](#13-common-mistakes)
 
 ---
 
@@ -178,6 +179,8 @@ BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "BATCH_ID=$BATCH_ID"
 ```
+
+Same size with webhook delivery: see [§12](#12-1000-prompts--webhook-file) (`samples/batch_1000_prompts_webhook.json`).
 
 ## 5. Get one batch by id
 
@@ -454,7 +457,7 @@ echo "BATCH_ID=$BATCH_ID"
 
 ```bash
 while true; do
-  curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
+  curl -s "http://167.71.233.238:8000/v1/batches/01KXT40A5MHYHJVT23K0M151DX" \
     -H "Authorization: Bearer demo-api-key-local-test" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d.get('webhook_status'), d.get('progress')); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
     && break
@@ -499,7 +502,43 @@ That value must match `X-Webhook-Signature`.
 
 ---
 
-## 12. Common mistakes
+## 12. 1000 prompts + webhook file
+
+Same live DigitalOcean settings as [§4](#4-smoke--load-1000-prompts), plus the shared webhook.site inbox from [§11](#11-realtime-webhook).
+
+**Warning:** 1000 live inferences — real token cost, possible rate limiting, many minutes. Prefer the small webhook batch in §11 for routine delivery checks.
+
+Sample: `samples/batch_1000_prompts_webhook.json` (`webhook_url` + `webhook_secret: test-secret-123`).
+
+From the **repo root**:
+
+```bash
+BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file1000-webhook-$(date +%s)" \
+  -d @samples/batch_1000_prompts_webhook.json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "BATCH_ID=$BATCH_ID"
+```
+
+Poll until terminal status; watch `progress.retry_count`, `result_url`, and `webhook_status`:
+
+```bash
+while true; do
+  curl -s "http://167.71.233.238:8000/v1/batches/01KXT4CK8TDN5ZE26A41AXS83S" \
+    -H "Authorization: Bearer demo-api-key-local-test" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('progress') or {}; print(d['status'], d.get('webhook_status'), 'retry_count=', p.get('retry_count'), 'result_url=', d.get('result_url')); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
+    && break
+  sleep 5
+done
+```
+
+When `status` is `completed`, `result_url` should be set and `webhook_status` should move to `delivered`. Confirm `batch.completed` on [webhook.site](https://webhook.site/89d5421d-1978-4da8-bc95-5d6838df277e) (HMAC verify steps in [§11](#11-realtime-webhook)).
+
+---
+
+## 13. Common mistakes
 
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
