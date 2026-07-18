@@ -96,6 +96,7 @@ async def create_batch(
         chunk_size=chunk_size or settings.default_chunk_size,
         completed_items=0,
         failed_items=0,
+        retry_count=0,
         prompts_key=pkey,
         result_prefix=batch_prefix(batch_id),
         webhook_url=webhook_url,

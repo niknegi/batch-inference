@@ -5,7 +5,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 
 from app.core.backoff import exponential_backoff_seconds
 from app.core.config import get_settings
@@ -87,6 +87,50 @@ async def orchestrate_batch(ctx: dict[str, Any], batch_id: str) -> dict[str, Any
     return {"ok": True, "chunks_enqueued": len(chunk_ids)}
 
 
+async def _recompute_batch_counters(session, batch_id: str) -> None:
+    """Set Batch progress + retry counters from chunk rows.
+
+    completed/failed come from succeeded chunks only (idempotent under
+    lease-expiry races that re-run the success path). retry_count is
+    sum(max(0, attempts - 1)) across all chunks.
+    """
+    succeeded = BatchChunk.status == ChunkStatus.succeeded
+    ok_fail_sum = (
+        select(func.coalesce(func.sum(BatchChunk.ok_count + BatchChunk.fail_count), 0))
+        .where(BatchChunk.batch_id == batch_id, succeeded)
+        .scalar_subquery()
+    )
+    fail_sum = (
+        select(func.coalesce(func.sum(BatchChunk.fail_count), 0))
+        .where(BatchChunk.batch_id == batch_id, succeeded)
+        .scalar_subquery()
+    )
+    retry_sum = (
+        select(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (BatchChunk.attempts > 1, BatchChunk.attempts - 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            )
+        )
+        .where(BatchChunk.batch_id == batch_id)
+        .scalar_subquery()
+    )
+    await session.execute(
+        update(Batch)
+        .where(Batch.id == batch_id)
+        .values(
+            completed_items=ok_fail_sum,
+            failed_items=fail_sum,
+            retry_count=retry_sum,
+        )
+    )
+
+
 async def _lease_chunk(session, chunk_id: int, lease_seconds: int) -> BatchChunk | None:
     now = datetime.now(UTC)
     leased_until = now + timedelta(seconds=lease_seconds)
@@ -106,6 +150,13 @@ async def _lease_chunk(session, chunk_id: int, lease_seconds: int) -> BatchChunk
     chunk.status = ChunkStatus.leased
     chunk.leased_until = leased_until
     chunk.attempts += 1
+    # Live bump so progress shows retries before the chunk succeeds again
+    if chunk.attempts > 1:
+        await session.execute(
+            update(Batch)
+            .where(Batch.id == chunk.batch_id)
+            .values(retry_count=Batch.retry_count + 1)
+        )
     await session.flush()
     return chunk
 
@@ -240,17 +291,11 @@ async def process_chunk(
                 chunk.fail_count = fail_count
                 chunk.leased_until = None
                 chunk.error = None
+                # Flush succeeded counts before recompute so this chunk is included
                 await session.flush()
 
-                # Atomic progress bump (avoid lost updates under concurrent chunk workers)
-                await session.execute(
-                    update(Batch)
-                    .where(Batch.id == batch_id)
-                    .values(
-                        completed_items=Batch.completed_items + ok_count + fail_count,
-                        failed_items=Batch.failed_items + fail_count,
-                    )
-                )
+                # Recompute from chunks (idempotent under retries / lease races)
+                await _recompute_batch_counters(session, batch_id)
                 await session.commit()
 
             # Nudge completion check
@@ -401,12 +446,14 @@ async def finalize_batch(ctx: dict[str, Any], batch_id: str) -> dict[str, Any]:
                 "total_items": batch.total_items,
                 "completed_items": batch.completed_items,
                 "failed_items": batch.failed_items,
+                "retry_count": batch.retry_count,
                 "chunks": [
                     {
                         "chunk_index": c.chunk_index,
                         "result_key": c.result_key,
                         "ok_count": c.ok_count,
                         "fail_count": c.fail_count,
+                        "attempts": c.attempts,
                     }
                     for c in chunks
                 ],
@@ -456,6 +503,7 @@ async def deliver_batch_webhook(ctx: dict[str, Any], batch_id: str, event: str) 
                 "total_items": batch.total_items,
                 "completed_items": batch.completed_items,
                 "failed_items": batch.failed_items,
+                "retry_count": batch.retry_count,
             },
             completed_at=batch.completed_at,
         )

@@ -40,6 +40,7 @@ class BatchProgress(BaseModel):
     total_items: int
     completed_items: int
     failed_items: int
+    retry_count: int = 0
     fraction: float
 
 

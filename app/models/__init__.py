@@ -68,6 +68,8 @@ class Batch(Base):
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     completed_items: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failed_items: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Sum of per-chunk retries: max(0, attempts - 1) across chunks
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     prompts_key: Mapped[str] = mapped_column(String(512), nullable=False)
     result_prefix: Mapped[str] = mapped_column(String(512), nullable=False)

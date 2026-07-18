@@ -50,6 +50,7 @@ def _to_response(batch: Batch, result_url: str | None = None) -> BatchResponse:
             total_items=batch.total_items,
             completed_items=batch.completed_items,
             failed_items=batch.failed_items,
+            retry_count=batch.retry_count,
             fraction=round(batch.completed_items / total, 6),
         ),
         chunk_size=batch.chunk_size,
