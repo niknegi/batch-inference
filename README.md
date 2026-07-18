@@ -91,10 +91,43 @@ Set env vars and pass `provider` on create:
 
 | `provider` | Config |
 |------------|--------|
-| `mock` | `MOCK_PROVIDER=true` (default in Compose) |
+| `mock` | `MOCK_PROVIDER=true` — **use for local/CI** (no real LLM calls) |
+| `digitalocean` | `DO_INFERENCE_API_KEY` — **prod** DigitalOcean Serverless Inference |
 | `openai` | `OPENAI_API_KEY` |
 | `anthropic` | `ANTHROPIC_API_KEY` |
-| `openai_compatible` | `OPENAI_COMPATIBLE_BASE_URL` + optional `OPENAI_COMPATIBLE_API_KEY` (vLLM, Groq, Together, etc.) |
+| `openai_compatible` | `OPENAI_COMPATIBLE_BASE_URL` + optional `OPENAI_COMPATIBLE_API_KEY` |
+
+### DigitalOcean Inference (production)
+
+Create a **Model Access Key**: Control Panel → Inference → API Keys → Generate Key.
+
+```bash
+# .env (prod)
+MOCK_PROVIDER=false
+DO_INFERENCE_API_KEY=your-model-access-key
+DO_INFERENCE_BASE_URL=https://inference.do-ai.run/v1
+```
+
+Submit a batch against a catalog model ID (chat completions):
+
+```bash
+curl -s -X POST http://localhost:8000/v1/batches \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": ["Explain how a black hole is formed."],
+    "provider": "digitalocean",
+    "model": "llama3.3-70b-instruct",
+    "rate_limit_rps": 10,
+    "max_concurrency": 8
+  }'
+```
+
+Under the hood each item calls:
+
+`POST https://inference.do-ai.run/v1/chat/completions` with Bearer auth and an OpenAI-compatible `{ model, messages }` body.
+
+> **Note:** fal image/audio models use `/v1/async-invoke` with `{ model_id, input }` — that path is not used by this batch text service. Use chat-capable catalog models for `provider: digitalocean`.
 
 ## Crash safety & scale model
 

@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str = Field(default="", alias="OPENAI_COMPATIBLE_BASE_URL")
     openai_compatible_api_key: str = Field(default="", alias="OPENAI_COMPATIBLE_API_KEY")
 
+    # DigitalOcean Serverless Inference (prod LLM endpoint)
+    # Create key: Control Panel → Inference → API Keys → Generate Key
+    do_inference_api_key: str = Field(default="", alias="DO_INFERENCE_API_KEY")
+    do_inference_base_url: str = Field(
+        default="https://inference.do-ai.run/v1",
+        alias="DO_INFERENCE_BASE_URL",
+    )
+
     default_rate_limit_rps: float = Field(default=50.0, alias="DEFAULT_RATE_LIMIT_RPS")
     default_max_concurrency: int = Field(default=16, alias="DEFAULT_MAX_CONCURRENCY")
 

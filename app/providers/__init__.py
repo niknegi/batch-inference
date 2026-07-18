@@ -151,6 +151,27 @@ class OpenAICompatibleProvider(OpenAIProvider):
         self.name = "openai_compatible"
 
 
+class DigitalOceanInferenceProvider(OpenAIProvider):
+    """DigitalOcean Serverless Inference (chat completions).
+
+    Endpoint: POST {base}/chat/completions
+    Auth: Authorization: Bearer <Model Access Key>
+    Body: OpenAI-compatible { model, messages, ... }
+
+    Docs: https://docs.digitalocean.com/products/inference/how-to/use-chat-completions-api/
+    """
+
+    name = "digitalocean"
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://inference.do-ai.run/v1",
+    ) -> None:
+        super().__init__(api_key=api_key, base_url=base_url)
+        self.name = "digitalocean"
+
+
 class MockProvider:
     """Deterministic local provider for tests and local docker."""
 
@@ -191,6 +212,7 @@ class MockProvider:
 
 def build_providers(settings: Settings) -> dict[str, object]:
     providers: dict[str, object] = {}
+    # Always register mock when enabled (local/CI). Prod sets MOCK_PROVIDER=false.
     if settings.mock_provider:
         providers["mock"] = MockProvider()
     if settings.openai_api_key:
@@ -201,6 +223,11 @@ def build_providers(settings: Settings) -> dict[str, object]:
         providers["openai_compatible"] = OpenAICompatibleProvider(
             api_key=settings.openai_compatible_api_key,
             base_url=settings.openai_compatible_base_url,
+        )
+    if settings.do_inference_api_key:
+        providers["digitalocean"] = DigitalOceanInferenceProvider(
+            api_key=settings.do_inference_api_key,
+            base_url=settings.do_inference_base_url,
         )
     if not providers:
         providers["mock"] = MockProvider()
