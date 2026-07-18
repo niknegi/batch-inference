@@ -17,14 +17,15 @@ Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 1. [Health check](#1-health-check)
 2. [Create batch (live DigitalOcean LLM)](#2-create-batch-live-digitalocean-llm)
 3. [Create from JSON file (`-d @file`)](#3-create-from-json-file--d-file)
-4. [Get one batch by id](#4-get-one-batch-by-id)
-5. [List all batches](#5-list-all-batches)
-6. [Get results (when completed)](#6-get-results-when-completed)
-7. [Cancel a batch](#7-cancel-a-batch)
-8. [Multipart NDJSON / file upload](#8-multipart-ndjson--file-upload)
-9. [Mock provider (local / CI only)](#9-mock-provider-local--ci-only)
-10. [Realtime webhook](#10-realtime-webhook)
-11. [Common mistakes](#11-common-mistakes)
+4. [Smoke / load: 1000 prompts](#4-smoke--load-1000-prompts)
+5. [Get one batch by id](#5-get-one-batch-by-id)
+6. [List all batches](#6-list-all-batches)
+7. [Get results (when completed)](#7-get-results-when-completed)
+8. [Cancel a batch](#8-cancel-a-batch)
+9. [Multipart NDJSON / file upload](#9-multipart-ndjson--file-upload)
+10. [Mock provider (local / CI only)](#10-mock-provider-local--ci-only)
+11. [Realtime webhook](#11-realtime-webhook)
+12. [Common mistakes](#12-common-mistakes)
 
 ---
 
@@ -150,7 +151,35 @@ Note: `samples/batch_5_prompts.json` and `samples/batch_10_prompts.json` still u
 
 ---
 
-## 4. Get one batch by id
+## 4. Smoke / load: 1000 prompts
+
+**Warning:** This posts **1000** live DigitalOcean inferences. Expect real **token cost**, possible **rate limiting**, and a run that can take **many minutes**. Prefer the 5/10-prompt samples for routine checks. Do not fire this repeatedly.
+
+From the **repo root**:
+
+```bash
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file1000-$(date +%s)" \
+  -d @samples/batch_1000_prompts_live.json
+```
+
+Save the returned `id`, then poll status (see [§5](#5-get-one-batch-by-id)) until `completed` / `failed` / `cancelled` before fetching results.
+
+Capture id:
+
+```bash
+BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file1000-$(date +%s)" \
+  -d @samples/batch_1000_prompts_live.json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "BATCH_ID=$BATCH_ID"
+```
+
+## 5. Get one batch by id
 
 Poll status and progress. Use `$BATCH_ID` from the create response (or paste an id).
 
@@ -175,7 +204,7 @@ done
 
 ---
 
-## 5. List all batches
+## 6. List all batches
 
 Newest first. Default page size is 50 (max 200).
 
@@ -194,7 +223,7 @@ curl -s "http://167.71.233.238:8000/v1/batches?limit=50&offset=0" \
 
 ---
 
-## 6. Get results (when completed)
+## 7. Get results (when completed)
 
 Only works after the batch has finished and `results_key` is set. The endpoint **streams NDJSON through the API** (auth required). MinIO does not need to be publicly reachable.
 
@@ -231,7 +260,7 @@ If you get `409 Results not ready`, poll get-by-id until `status` is `completed`
 
 ---
 
-## 7. Cancel a batch
+## 8. Cancel a batch
 
 Cancels an in-flight (or still-queued) batch. Create a larger/slower one first if you need something still running.
 
@@ -244,7 +273,7 @@ Response is the updated batch (`status` → `cancelled` when successful).
 
 ---
 
-## 8. Multipart NDJSON / file upload
+## 9. Multipart NDJSON / file upload
 
 `POST /v1/batches/upload` accepts an NDJSON or plain-text file via `-F file=@...`. Plain lines become `{"index": i, "prompt": "..."}`.
 
@@ -299,7 +328,7 @@ curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
 
 ---
 
-## 9. Mock provider (local / CI only)
+## 10. Mock provider (local / CI only)
 
 **Not the Droplet default.** Prod is configured with `MOCK_PROVIDER=false`, so creates with `"provider": "mock"` typically fail with an unknown/unregistered provider error.
 
@@ -330,7 +359,7 @@ curl -s -X POST "http://localhost:8000/v1/batches" \
 
 ---
 
-## 10. Realtime webhook
+## 11. Realtime webhook
 
 End-to-end check that the API POSTs a signed webhook when a batch finishes. Use [webhook.site](https://webhook.site): open the site, copy your unique URL (`https://webhook.site/<uuid>`), and watch requests arrive in the browser.
 
@@ -456,7 +485,7 @@ That value must match `X-Webhook-Signature`.
 
 ---
 
-## 11. Common mistakes
+## 12. Common mistakes
 
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
