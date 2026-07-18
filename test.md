@@ -233,7 +233,7 @@ Only works after the batch has finished and `results_key` is set. The endpoint *
 Download / print NDJSON for a completed batch (example id):
 
 ```bash
-curl -s "http://167.71.233.238:8000/v1/batches/01KXT1PCPKM0K4Y0SXAF973NH6/results" \
+curl -s "http://167.71.233.238:8000/v1/batches/01KXT4Z3GP7G3P1SFQXNA7BN0J/results" \
   -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
@@ -526,7 +526,7 @@ Poll until terminal status; watch `progress.retry_count`, `result_url`, and `web
 
 ```bash
 while true; do
-  curl -s "http://167.71.233.238:8000/v1/batches/01KXT4CK8TDN5ZE26A41AXS83S" \
+  curl -s "http://167.71.233.238:8000/v1/batches/01KXT4Z3GP7G3P1SFQXNA7BN0J" \
     -H "Authorization: Bearer demo-api-key-local-test" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('progress') or {}; print(d['status'], d.get('webhook_status'), 'retry_count=', p.get('retry_count'), 'result_url=', d.get('result_url')); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
     && break
