@@ -6,6 +6,7 @@ Copy-paste curl commands to hit the live Droplet API from your laptop Terminal.
 |---|---|
 | **Base URL** | `http://167.71.233.238:8000` |
 | **Auth** | `Authorization: Bearer demo-api-key-local-test` |
+| **Prod LLM** | Droplet runs with `MOCK_PROVIDER=false` — use **digitalocean** + `openai-gpt-oss-20b` |
 
 Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 
@@ -14,15 +15,16 @@ Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 ## Table of contents
 
 1. [Health check](#1-health-check)
-2. [Create batch (JSON, mock)](#2-create-batch-json-mock)
-3. [Get one batch by id](#3-get-one-batch-by-id)
-4. [List all batches](#4-list-all-batches)
-5. [Get results (when completed)](#5-get-results-when-completed)
-6. [Cancel a batch](#6-cancel-a-batch)
-7. [Multipart upload create](#7-multipart-upload-create)
-8. [Live DigitalOcean inference](#8-live-digitalocean-inference)
-9. [Webhook test](#9-webhook-test)
-10. [Common mistakes](#10-common-mistakes)
+2. [Create batch (live DigitalOcean LLM)](#2-create-batch-live-digitalocean-llm)
+3. [Create from JSON file (`-d @file`)](#3-create-from-json-file--d-file)
+4. [Get one batch by id](#4-get-one-batch-by-id)
+5. [List all batches](#5-list-all-batches)
+6. [Get results (when completed)](#6-get-results-when-completed)
+7. [Cancel a batch](#7-cancel-a-batch)
+8. [Multipart NDJSON / file upload](#8-multipart-ndjson--file-upload)
+9. [Mock provider (local / CI only)](#9-mock-provider-local--ci-only)
+10. [Webhook test](#10-webhook-test)
+11. [Common mistakes](#11-common-mistakes)
 
 ---
 
@@ -38,26 +40,27 @@ Expected shape: `{"status":"ok","version":"..."}`.
 
 ---
 
-## 2. Create batch (JSON, mock)
+## 2. Create batch (live DigitalOcean LLM)
 
-Creates a batch with inline prompts using the **mock** provider (no real LLM calls). Response is `202` and includes an `id` — save it for later steps.
+**Primary path on this Droplet.** Creates a small batch with real inference via `provider: digitalocean` and economy model `openai-gpt-oss-20b`. Response is `202` and includes an `id` — save it for later steps.
+
+Requires on the Droplet: `MOCK_PROVIDER=false` and a valid `DO_INFERENCE_API_KEY`.
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
   -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: local-test-$(date +%s)" \
+  -H "Idempotency-Key: do-live-$(date +%s)" \
   -d '{
     "prompts": [
       "Explain how a black hole is formed in two sentences.",
-      "What is the capital of France?",
-      "Write a one-line haiku about rain."
+      "What is the capital of France?"
     ],
-    "provider": "mock",
-    "model": "mock-1",
-    "chunk_size": 2,
-    "rate_limit_rps": 50,
-    "max_concurrency": 4
+    "provider": "digitalocean",
+    "model": "openai-gpt-oss-20b",
+    "chunk_size": 1,
+    "rate_limit_rps": 5,
+    "max_concurrency": 2
   }'
 ```
 
@@ -65,10 +68,10 @@ Example response:
 
 ```json
 {
-  "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "id": "01KXXXXXXXXXXXXXXXXXXXXXXX",
   "status": "queued",
-  "total_items": 3,
-  "chunk_size": 2
+  "total_items": 2,
+  "chunk_size": 1
 }
 ```
 
@@ -78,32 +81,68 @@ Capture the id for the rest of this guide:
 BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
   -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: local-test-$(date +%s)" \
+  -H "Idempotency-Key: do-live-$(date +%s)" \
   -d '{
     "prompts": [
       "Explain how a black hole is formed in two sentences.",
-      "What is the capital of France?",
-      "Write a one-line haiku about rain."
+      "What is the capital of France?"
     ],
-    "provider": "mock",
-    "model": "mock-1",
-    "chunk_size": 2,
-    "rate_limit_rps": 50,
-    "max_concurrency": 4
+    "provider": "digitalocean",
+    "model": "openai-gpt-oss-20b",
+    "chunk_size": 1,
+    "rate_limit_rps": 5,
+    "max_concurrency": 2
   }' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "BATCH_ID=$BATCH_ID"
 ```
 
 ---
 
-## 3. Get one batch by id
+## 3. Create from JSON file (`-d @file`)
 
-Poll status and progress. Use `$BATCH_ID` from the create response (or paste a UUID).
+From the **repo root**, post a ready-made body with curl's `@file` syntax. Use the **`_live`** samples on this Droplet (`MOCK_PROVIDER=false`).
+
+5 prompts (live DigitalOcean):
 
 ```bash
-# If you already have the create JSON in the clipboard / last response:
-# BATCH_ID=$(echo '<paste create response>' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file5-$(date +%s)" \
+  -d @samples/batch_5_prompts_live.json
+```
 
+10 prompts (live DigitalOcean):
+
+```bash
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file10-$(date +%s)" \
+  -d @samples/batch_10_prompts_live.json
+```
+
+Capture id from a file create:
+
+```bash
+BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: file5-$(date +%s)" \
+  -d @samples/batch_5_prompts_live.json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "BATCH_ID=$BATCH_ID"
+```
+
+Note: `samples/batch_5_prompts.json` and `samples/batch_10_prompts.json` still use `"provider": "mock"` for local Compose / CI. Against this Droplet they will fail while `MOCK_PROVIDER=false` — prefer the `*_live.json` files, or edit `provider` / `model` in a copy before posting.
+
+---
+
+## 4. Get one batch by id
+
+Poll status and progress. Use `$BATCH_ID` from the create response (or paste an id).
+
+```bash
 curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
   -H "Authorization: Bearer demo-api-key-local-test"
 ```
@@ -116,7 +155,7 @@ Poll until complete:
 while true; do
   curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
     -H "Authorization: Bearer demo-api-key-local-test" \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d['progress']); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d.get('progress')); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
     && break
   sleep 2
 done
@@ -124,7 +163,7 @@ done
 
 ---
 
-## 4. List all batches
+## 5. List all batches
 
 Newest first. Default page size is 50 (max 200).
 
@@ -143,7 +182,7 @@ curl -s "http://167.71.233.238:8000/v1/batches?limit=50&offset=0" \
 
 ---
 
-## 5. Get results (when completed)
+## 6. Get results (when completed)
 
 Only works after the batch has finished and `results_key` is set. By default the endpoint **302-redirects** to a presigned Spaces URL.
 
@@ -165,7 +204,7 @@ If you get `409 Results not ready`, poll get-by-id until `status` is `completed`
 
 ---
 
-## 6. Cancel a batch
+## 7. Cancel a batch
 
 Cancels an in-flight (or still-queued) batch. Create a larger/slower one first if you need something still running.
 
@@ -178,42 +217,44 @@ Response is the updated batch (`status` → `cancelled` when successful).
 
 ---
 
-## 7. Multipart upload create
+## 8. Multipart NDJSON / file upload
 
-`POST /v1/batches/upload` accepts an NDJSON or plain-text file. Plain lines become `{"index": i, "prompt": "..."}`.
+`POST /v1/batches/upload` accepts an NDJSON or plain-text file via `-F file=@...`. Plain lines become `{"index": i, "prompt": "..."}`.
 
-Create a tiny NDJSON file, then upload:
+**Live DigitalOcean** using the repo NDJSON sample (from repo root):
 
 ```bash
-cat > /tmp/prompts.ndjson <<'EOF'
+curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Idempotency-Key: upload-do-$(date +%s)" \
+  -F "file=@samples/prompts_live.ndjson" \
+  -F "provider=digitalocean" \
+  -F "model=openai-gpt-oss-20b" \
+  -F "chunk_size=1" \
+  -F "rate_limit_rps=5" \
+  -F "max_concurrency=2"
+```
+
+Or write a tiny NDJSON file ad hoc:
+
+```bash
+cat > /tmp/prompts.ndjson <<'NDJSON'
 {"index": 0, "prompt": "Summarize the water cycle in two sentences."}
 {"index": 1, "prompt": "List three benefits of unit testing."}
-{"index": 2, "prompt": "Name one constellation visible from the northern hemisphere."}
-EOF
+NDJSON
 
 curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
   -H "Authorization: Bearer demo-api-key-local-test" \
-  -H "Idempotency-Key: upload-$(date +%s)" \
+  -H "Idempotency-Key: upload-tmp-$(date +%s)" \
   -F "file=@/tmp/prompts.ndjson" \
-  -F "provider=mock" \
-  -F "model=mock-1" \
-  -F "chunk_size=2" \
-  -F "rate_limit_rps=50" \
-  -F "max_concurrency=4"
+  -F "provider=digitalocean" \
+  -F "model=openai-gpt-oss-20b" \
+  -F "chunk_size=1" \
+  -F "rate_limit_rps=5" \
+  -F "max_concurrency=2"
 ```
 
-Or reuse repo samples as a prompt list (JSON body, not multipart):
-
-```bash
-# From repo root — samples/batch_5_prompts.json is already mock-shaped
-curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
-  -H "Authorization: Bearer demo-api-key-local-test" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: sample-$(date +%s)" \
-  -d @samples/batch_5_prompts.json
-```
-
-Plain-text upload also works:
+Plain-text upload (one prompt per line):
 
 ```bash
 printf '%s\n' \
@@ -223,50 +264,46 @@ printf '%s\n' \
 
 curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
   -H "Authorization: Bearer demo-api-key-local-test" \
-  -H "Idempotency-Key: txt-$(date +%s)" \
+  -H "Idempotency-Key: txt-do-$(date +%s)" \
   -F "file=@/tmp/prompts.txt" \
-  -F "provider=mock" \
-  -F "model=mock-1"
+  -F "provider=digitalocean" \
+  -F "model=openai-gpt-oss-20b"
 ```
 
 ---
 
-## 8. Live DigitalOcean inference
+## 9. Mock provider (local / CI only)
 
-Uses `provider: digitalocean` and a chat-capable catalog model. **Real inference only works when the Droplet has `MOCK_PROVIDER=false` and a valid `DO_INFERENCE_API_KEY`.**
+**Not the Droplet default.** Prod is configured with `MOCK_PROVIDER=false`, so creates with `"provider": "mock"` typically fail with an unknown/unregistered provider error.
 
-If mock mode is still on the Droplet, this create may still be accepted but will not call live DO Inference — exercise mock first (section 2), then ask whoever runs the Droplet to set:
-
-```bash
-MOCK_PROVIDER=false
-DO_INFERENCE_API_KEY=...   # Model Access Key from DO Control Panel → Inference
-```
-
-Live create:
+Use mock only when developing locally or in CI with `MOCK_PROVIDER=true`:
 
 ```bash
 curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
   -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: do-live-$(date +%s)" \
+  -H "Idempotency-Key: mock-$(date +%s)" \
   -d '{
-    "prompts": [
-      "Explain how a black hole is formed.",
-      "In one paragraph, what is gradient descent?"
-    ],
-    "provider": "digitalocean",
-    "model": "openai-gpt-oss-20b",
-    "chunk_size": 1,
-    "rate_limit_rps": 5,
-    "max_concurrency": 2
+    "prompts": ["hello mock"],
+    "provider": "mock",
+    "model": "mock-1"
   }'
 ```
 
-Then poll with section 3 / fetch results with section 5.
+Mock-shaped JSON files for local Compose (will fail on this Droplet while unmocked):
+
+```bash
+# Local / CI only — provider mock
+curl -s -X POST "http://localhost:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: mock-file-$(date +%s)" \
+  -d @samples/batch_5_prompts.json
+```
 
 ---
 
-## 9. Webhook test
+## 10. Webhook test
 
 Pings an arbitrary HTTPS endpoint with a signed test payload (`event: webhook.test`). Useful to verify your receiver and firewall before attaching `webhook_url` on a real batch.
 
@@ -284,20 +321,21 @@ curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
 
 Expected: `{"ok": true, "error": null}` if delivery succeeded.
 
-On a real batch you can also pass `"webhook_url": "https://..."` in the create JSON (sections 2 / 8).
+On a real batch you can also pass `"webhook_url": "https://..."` in the create JSON (section 2).
 
 ---
 
-## 10. Common mistakes
+## 11. Common mistakes
 
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
 | `https://` instead of `http://` | TLS / connection errors | Use **http** — Droplet listens on plain HTTP on port 8000 |
 | Missing `:8000` | Connection refused / wrong service | Full base: `http://167.71.233.238:8000` |
 | Wrong or missing API key | `401` | Header: `Authorization: Bearer demo-api-key-local-test` |
+| Using `provider: mock` / mock sample JSON on prod | Create fails — mock not registered | Use section 2 or `samples/*_live.json` |
 | Typo in path | `404` | Paths are `/health`, `/v1/batches`, `/v1/batches/{id}/results`, etc. |
 | Results too early | `409 Results not ready` | Wait until get-by-id shows `completed` |
-| Expecting live DO while mock is on | Mock-ish / non-DO behavior | Confirm `MOCK_PROVIDER=false` on the Droplet for section 8 |
+| Missing DO key on Droplet | Live batch fails | Ensure `DO_INFERENCE_API_KEY` is set and `MOCK_PROVIDER=false` |
 
 Quick sanity check that base URL + key work:
 

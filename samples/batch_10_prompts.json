@@ -1,0 +1,19 @@
+{
+  "prompts": [
+    "Explain how a black hole is formed.",
+    "What is the capital of France?",
+    "Summarize the water cycle in two sentences.",
+    "Write a one-line haiku about rain.",
+    "List three benefits of unit testing.",
+    "What is HTTP status code 429?",
+    "Define idempotency in APIs.",
+    "Give one example of a rate limiter.",
+    "What does NDJSON mean?",
+    "Explain webhooks in one sentence."
+  ],
+  "provider": "mock",
+  "model": "mock-1",
+  "chunk_size": 5,
+  "rate_limit_rps": 50,
+  "max_concurrency": 8
+}

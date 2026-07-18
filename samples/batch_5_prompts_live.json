@@ -1,0 +1,14 @@
+{
+  "prompts": [
+    "Explain how a black hole is formed.",
+    "What is the capital of France?",
+    "Summarize the water cycle in two sentences.",
+    "Write a one-line haiku about rain.",
+    "List three benefits of unit testing."
+  ],
+  "provider": "digitalocean",
+  "model": "openai-gpt-oss-20b",
+  "chunk_size": 2,
+  "rate_limit_rps": 5,
+  "max_concurrency": 2
+}
