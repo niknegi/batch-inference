@@ -8,10 +8,18 @@ from typing import Any
 
 import httpx
 
+from app.core.backoff import webhook_backoff_seconds
 from app.core.logging import get_logger
 from app.core.metrics import WEBHOOK_DELIVERIES
 
 logger = get_logger(__name__)
+
+__all__ = [
+    "sign_payload",
+    "build_webhook_payload",
+    "deliver_webhook",
+    "webhook_backoff_seconds",
+]
 
 
 def sign_payload(secret: str, body: bytes) -> str:
@@ -68,8 +76,3 @@ async def deliver_webhook(
         WEBHOOK_DELIVERIES.labels(status="transport_error").inc()
         logger.warning("webhook_delivery_failed", url=url, error=str(exc))
         return False, str(exc)
-
-
-def webhook_backoff_seconds(attempt: int) -> int:
-    """Exponential backoff capped at 5 minutes: 1, 2, 4, ... 300."""
-    return min(2 ** max(attempt - 1, 0), 300)

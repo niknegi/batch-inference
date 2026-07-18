@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     default_rate_limit_rps: float = Field(default=50.0, alias="DEFAULT_RATE_LIMIT_RPS")
     default_max_concurrency: int = Field(default=16, alias="DEFAULT_MAX_CONCURRENCY")
 
+    default_provider: str = Field(default="mock", alias="DEFAULT_PROVIDER")
+    default_model: str = Field(default="llama3.2-3b-instruct", alias="DEFAULT_MODEL")
+    default_cost_preference: str = Field(default="economy", alias="DEFAULT_COST_PREFERENCE")
+
     @property
     def api_key_set(self) -> set[str]:
         return {k.strip() for k in self.api_keys.split(",") if k.strip()}

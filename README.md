@@ -55,6 +55,36 @@ curl -s -X POST http://localhost:8000/v1/batches \
   }'
 ```
 
+`provider`, `model`, and `cost_preference` are optional — they fall back to `DEFAULT_PROVIDER`, `DEFAULT_MODEL`, and `DEFAULT_COST_PREFERENCE` (economy routing prefers small Llama models when applicable).
+
+You can also supply prompts without inlining them:
+
+| Field | Meaning |
+|-------|---------|
+| `prompts` | Inline list (≤50k) |
+| `prompts_url` | HTTP(S) URL of NDJSON / plain-text lines to download |
+| `prompts_key` | Existing object key in the Spaces bucket to copy |
+| `cost_preference` | `economy` (default) / `standard` / `premium` |
+
+At least one of `prompts`, `prompts_url`, or `prompts_key` is required.
+
+### Upload an NDJSON file
+
+```bash
+curl -s -X POST http://localhost:8000/v1/batches/upload \
+  -H "Authorization: Bearer dev-api-key-change-me" \
+  -H "Idempotency-Key: upload-1" \
+  -F "file=@prompts.ndjson" \
+  -F "provider=mock" \
+  -F "model=mock-1" \
+  -F "cost_preference=economy" \
+  -F "chunk_size=100" \
+  -F "rate_limit_rps=50" \
+  -F "max_concurrency=8"
+```
+
+Plain-text lines in the file are normalized to `{"index": i, "prompt": "..."}`.
+
 Poll status:
 
 ```bash
@@ -75,7 +105,8 @@ python scripts/load_batch.py --count 50000 --chunk-size 100 --poll
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/batches` | Create batch (`Idempotency-Key` supported) |
+| `POST` | `/v1/batches` | Create batch from JSON (`prompts` / `prompts_url` / `prompts_key`; `Idempotency-Key` supported) |
+| `POST` | `/v1/batches/upload` | Create batch from multipart NDJSON/file upload |
 | `GET` | `/v1/batches/{id}` | Status + progress + result URL |
 | `GET` | `/v1/batches/{id}/results` | Redirect to presigned Spaces URL |
 | `POST` | `/v1/batches/{id}/cancel` | Cancel in-flight batch |
@@ -87,7 +118,13 @@ Auth: `Authorization: Bearer <API_KEY>` (comma-separated keys in `API_KEYS`).
 
 ## Providers
 
-Set env vars and pass `provider` on create:
+Set env vars and pass `provider` on create (or rely on defaults):
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `DEFAULT_PROVIDER` | `mock` | Used when create omits `provider` |
+| `DEFAULT_MODEL` | `llama3.2-3b-instruct` | Used when create omits `model` (if it fits `cost_preference`) |
+| `DEFAULT_COST_PREFERENCE` | `economy` | Prefer cheap catalog models unless overridden |
 
 | `provider` | Config |
 |------------|--------|

@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
 
+from app.core.backoff import exponential_backoff_seconds
 from app.core.config import get_settings
 from app.core.db import get_session_factory
 from app.core.logging import get_logger
@@ -193,7 +194,7 @@ async def process_chunk(
                                 await limiter.pause(bucket, float(retry_after))
                             except Exception:  # noqa: BLE001
                                 pass
-                        await asyncio.sleep(min(2**attempt, 8))
+                        await asyncio.sleep(exponential_backoff_seconds(attempt))
 
                     assert last is not None
                     if last.ok:
@@ -473,8 +474,11 @@ async def deliver_batch_webhook(ctx: dict[str, Any], batch_id: str, event: str) 
 
         await session.commit()
         delay = webhook_backoff_seconds(batch.webhook_attempts)
-        await ctx["redis"].enqueue_job("deliver_batch_webhook", batch_id, event, _defer_by=delay)
-        return {"ok": False, "retry_in": delay, "error": err}
+        defer_by = max(1, int(round(delay)))
+        await ctx["redis"].enqueue_job(
+            "deliver_batch_webhook", batch_id, event, _defer_by=defer_by
+        )
+        return {"ok": False, "retry_in": defer_by, "error": err}
 
 
 async def reclaim_leases_cron(ctx: dict[str, Any]) -> dict[str, Any]:

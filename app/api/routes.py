@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,15 +102,72 @@ async def create_batch_endpoint(
     try:
         batch = await create_batch(
             session,
+            spaces=spaces,
             prompts=body.prompts,
+            source_key=body.prompts_key,
+            prompts_url=body.prompts_url,
             provider=body.provider,
             model=body.model,
-            spaces=spaces,
+            cost_preference=body.cost_preference,
             webhook_url=body.webhook_url,
             webhook_secret=body.webhook_secret,
             chunk_size=body.chunk_size,
             rate_limit_rps=body.rate_limit_rps,
             max_concurrency=body.max_concurrency,
+            idempotency_key=idempotency_key,
+            settings=settings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await session.commit()
+    await arq.enqueue_job("orchestrate_batch", batch.id)
+    return BatchCreateResponse(
+        id=batch.id,
+        status=batch.status.value,
+        total_items=batch.total_items,
+        chunk_size=batch.chunk_size,
+    )
+
+
+@router.post(
+    "/v1/batches/upload",
+    response_model=BatchCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["batches"],
+)
+async def upload_batch_endpoint(
+    file: UploadFile = File(..., description="NDJSON or plain-text prompts file"),
+    session: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+    settings: Settings = Depends(get_settings),
+    spaces: SpacesClient = Depends(get_spaces),
+    arq: ArqRedis = Depends(get_arq),
+    provider: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+    cost_preference: str | None = Form(default=None),
+    webhook_url: str | None = Form(default=None),
+    chunk_size: int | None = Form(default=None),
+    rate_limit_rps: float | None = Form(default=None),
+    max_concurrency: int | None = Form(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> BatchCreateResponse:
+    data = await file.read()
+    if not data.strip():
+        raise HTTPException(status_code=400, detail="uploaded file is empty")
+
+    try:
+        batch = await create_batch(
+            session,
+            spaces=spaces,
+            raw_ndjson=data,
+            provider=provider,
+            model=model,
+            cost_preference=cost_preference,
+            webhook_url=webhook_url,
+            chunk_size=chunk_size,
+            rate_limit_rps=rate_limit_rps,
+            max_concurrency=max_concurrency,
             idempotency_key=idempotency_key,
             settings=settings,
         )

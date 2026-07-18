@@ -1,4 +1,4 @@
-"""Unit tests for chunk planning, webhooks, rate limiter, and providers."""
+"""Unit tests for chunk planning, webhooks, rate limiter, routing, and backoff."""
 
 from __future__ import annotations
 
@@ -8,11 +8,15 @@ import hmac
 import pytest
 from fakeredis.aioredis import FakeRedis
 
+from app.core.backoff import exponential_backoff_seconds, webhook_backoff_seconds
+from app.core.config import Settings
 from app.providers import MockProvider
 from app.providers.base import InferenceRequest
 from app.rate_limit import TokenBucketRateLimiter
 from app.services.batches import plan_chunks
-from app.services.webhooks import build_webhook_payload, sign_payload, webhook_backoff_seconds
+from app.services.routing import resolve_model
+from app.services.webhooks import build_webhook_payload, sign_payload
+from app.services.webhooks import webhook_backoff_seconds as webhook_backoff_reexport
 
 
 def test_plan_chunks_basic():
@@ -40,9 +44,86 @@ def test_webhook_signature():
 
 
 def test_webhook_backoff_caps():
-    assert webhook_backoff_seconds(1) == 1
-    assert webhook_backoff_seconds(2) == 2
-    assert webhook_backoff_seconds(10) == 300
+    assert webhook_backoff_seconds(1, jitter=False) == 1
+    assert webhook_backoff_seconds(2, jitter=False) == 2
+    assert webhook_backoff_seconds(10, jitter=False) == 300
+    assert webhook_backoff_reexport is webhook_backoff_seconds
+
+
+def test_webhook_backoff_jitter_in_range():
+    for attempt in (1, 2, 5, 10):
+        cap = min(2 ** max(attempt - 1, 0), 300)
+        for _ in range(20):
+            v = webhook_backoff_seconds(attempt, jitter=True)
+            assert 0.0 <= v <= float(cap)
+
+
+def test_exponential_backoff_no_jitter():
+    assert exponential_backoff_seconds(0, jitter=False) == 1.0
+    assert exponential_backoff_seconds(1, jitter=False) == 2.0
+    assert exponential_backoff_seconds(3, jitter=False) == 8.0
+    assert exponential_backoff_seconds(10, jitter=False) == 8.0
+
+
+def test_exponential_backoff_jitter_in_range():
+    for attempt in (0, 1, 2, 5):
+        cap = min(8.0, 1.0 * (2**attempt))
+        for _ in range(20):
+            v = exponential_backoff_seconds(attempt, jitter=True)
+            assert 0.0 <= v <= cap
+
+
+def test_resolve_model_explicit_override():
+    settings = Settings(
+        DEFAULT_PROVIDER="mock",
+        DEFAULT_MODEL="llama3.2-3b-instruct",
+        DEFAULT_COST_PREFERENCE="economy",
+    )
+    choice = resolve_model(
+        provider="digitalocean",
+        model="llama3.3-70b-instruct",
+        cost_preference="economy",
+        settings=settings,
+    )
+    assert choice.provider == "digitalocean"
+    assert choice.model == "llama3.3-70b-instruct"
+    assert choice.reason == "explicit_model_override"
+
+
+def test_resolve_model_economy_picks_small_llama():
+    settings = Settings(
+        DEFAULT_PROVIDER="digitalocean",
+        DEFAULT_MODEL="llama3.3-70b-instruct",
+        DEFAULT_COST_PREFERENCE="economy",
+    )
+    # Explicit default model is too expensive for economy → pick cheapest in tier
+    choice = resolve_model(
+        provider="digitalocean",
+        model=None,
+        cost_preference="economy",
+        settings=settings,
+    )
+    assert choice.provider == "digitalocean"
+    assert choice.model == "llama3.2-3b-instruct"
+    assert choice.cost_tier == "economy"
+    assert choice.reason == "cost_preference_economy"
+
+
+def test_resolve_model_settings_default():
+    settings = Settings(
+        DEFAULT_PROVIDER="mock",
+        DEFAULT_MODEL="mock-1",
+        DEFAULT_COST_PREFERENCE="economy",
+    )
+    choice = resolve_model(
+        provider=None,
+        model=None,
+        cost_preference=None,
+        settings=settings,
+    )
+    assert choice.provider == "mock"
+    assert choice.model == "mock-1"
+    assert choice.reason == "settings_default_model"
 
 
 def test_webhook_payload_shape():

@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.core.spaces import SpacesClient, batch_prefix, prompts_key
 from app.models import Batch, BatchChunk, BatchStatus, WebhookStatus
+from app.services.routing import resolve_model
 
 logger = get_logger(__name__)
 
@@ -25,10 +26,14 @@ def new_batch_id() -> str:
 async def create_batch(
     session: AsyncSession,
     *,
-    prompts: Sequence[str | dict[str, Any]],
-    provider: str,
-    model: str,
     spaces: SpacesClient,
+    prompts: Sequence[str | dict[str, Any]] | None = None,
+    raw_ndjson: bytes | None = None,
+    source_key: str | None = None,
+    prompts_url: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    cost_preference: str | None = None,
     webhook_url: str | None = None,
     webhook_secret: str | None = None,
     chunk_size: int | None = None,
@@ -46,12 +51,41 @@ async def create_batch(
         if existing:
             return existing
 
-    if not prompts:
+    sources = sum(
+        1
+        for s in (prompts is not None, raw_ndjson is not None, source_key, prompts_url)
+        if s
+    )
+    if sources == 0:
+        raise ValueError(
+            "one of prompts, raw_ndjson, source_key, or prompts_url is required"
+        )
+    if prompts is not None and not prompts:
         raise ValueError("prompts must be non-empty")
+
+    choice = resolve_model(
+        provider=provider,
+        model=model,
+        cost_preference=cost_preference,
+        settings=settings,
+    )
 
     batch_id = new_batch_id()
     pkey = prompts_key(batch_id)
-    total = await spaces.upload_prompts_ndjson(pkey, prompts)
+
+    if prompts is not None:
+        total = await spaces.upload_prompts_ndjson(pkey, prompts)
+    elif raw_ndjson is not None:
+        total = await spaces.upload_raw_ndjson(pkey, raw_ndjson)
+    elif source_key:
+        await spaces.copy_key(source_key, pkey)
+        total = await spaces.count_ndjson_lines(pkey)
+    else:
+        assert prompts_url is not None
+        total = await spaces.download_url_to_key(prompts_url, pkey)
+
+    if total < 1:
+        raise ValueError("input must contain at least one prompt line")
 
     secret = webhook_secret
     if webhook_url and not secret:
@@ -60,8 +94,8 @@ async def create_batch(
     batch = Batch(
         id=batch_id,
         status=BatchStatus.pending,
-        provider=provider,
-        model=model,
+        provider=choice.provider,
+        model=choice.model,
         total_items=total,
         chunk_size=chunk_size or settings.default_chunk_size,
         completed_items=0,
@@ -81,8 +115,10 @@ async def create_batch(
         "batch_created",
         batch_id=batch_id,
         total_items=total,
-        provider=provider,
-        model=model,
+        provider=choice.provider,
+        model=choice.model,
+        cost_tier=choice.cost_tier,
+        reason=choice.reason,
     )
     return batch
 

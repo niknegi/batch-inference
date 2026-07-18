@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aioboto3
+import httpx
 from botocore.client import Config
 
 from app.core.config import Settings, get_settings
@@ -78,6 +79,64 @@ class SpacesClient:
         body = b"\n".join(lines) + (b"\n" if lines else b"")
         await self.put_bytes(key, body)
         return len(prompts)
+
+    async def count_ndjson_lines(self, key: str) -> int:
+        count = 0
+        async for _ in self.stream_lines(key):
+            count += 1
+        return count
+
+    async def upload_raw_ndjson(self, key: str, data: bytes) -> int:
+        """Upload NDJSON (or plain-text lines) and return non-empty line count.
+
+        Valid JSON objects are preserved (``index`` set if missing). Plain text
+        lines are normalized to ``{"index": i, "prompt": "..."}``.
+        """
+        out: list[bytes] = []
+        idx = 0
+        for raw in data.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            text = line.decode("utf-8")
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed.setdefault("index", idx)
+                    out.append(json.dumps(parsed, ensure_ascii=False).encode("utf-8"))
+                else:
+                    out.append(
+                        json.dumps(
+                            {"index": idx, "prompt": str(parsed)}, ensure_ascii=False
+                        ).encode("utf-8")
+                    )
+            except json.JSONDecodeError:
+                out.append(
+                    json.dumps({"index": idx, "prompt": text}, ensure_ascii=False).encode(
+                        "utf-8"
+                    )
+                )
+            idx += 1
+        body = b"\n".join(out) + (b"\n" if out else b"")
+        await self.put_bytes(key, body)
+        return len(out)
+
+    async def copy_key(self, src_key: str, dest_key: str) -> str:
+        """Copy an object within the configured bucket."""
+        async with self._client() as client:
+            await client.copy_object(
+                Bucket=self.bucket,
+                CopySource={"Bucket": self.bucket, "Key": src_key},
+                Key=dest_key,
+            )
+        return dest_key
+
+    async def download_url_to_key(self, url: str, key: str) -> int:
+        """Fetch prompts from ``url`` and store as NDJSON under ``key``."""
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        return await self.upload_raw_ndjson(key, resp.content)
 
     async def stream_lines(self, key: str) -> AsyncIterator[str]:
         async with self._client() as client:

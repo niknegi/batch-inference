@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class BatchCreateRequest(BaseModel):
-    prompts: list[str | dict[str, Any]] = Field(..., min_length=1)
-    provider: str = Field(..., min_length=1, max_length=64)
-    model: str = Field(..., min_length=1, max_length=128)
+    prompts: list[str | dict[str, Any]] | None = Field(default=None, min_length=1)
+    prompts_url: str | None = None
+    prompts_key: str | None = None
+    provider: str | None = Field(default=None, min_length=1, max_length=64)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    cost_preference: str | None = Field(default=None, max_length=32)
     webhook_url: str | None = None
     webhook_secret: str | None = None
     chunk_size: int | None = Field(default=None, ge=1, le=10_000)
@@ -18,13 +21,21 @@ class BatchCreateRequest(BaseModel):
 
     @field_validator("prompts")
     @classmethod
-    def limit_inline_prompts(cls, v: list) -> list:
-        if len(v) > 50_000:
+    def limit_inline_prompts(cls, v: list | None) -> list | None:
+        if v is not None and len(v) > 50_000:
             raise ValueError(
-                "Inline prompts limited to 50_000; upload prompts.ndjson to Spaces "
-                "and use a smaller create path for larger batches in future."
+                "Inline prompts limited to 50_000; upload NDJSON via "
+                "POST /v1/batches/upload or provide prompts_url / prompts_key."
             )
         return v
+
+    @model_validator(mode="after")
+    def require_input_source(self) -> Self:
+        if not self.prompts and not self.prompts_url and not self.prompts_key:
+            raise ValueError(
+                "at least one of prompts, prompts_url, or prompts_key is required"
+            )
+        return self
 
 
 class BatchProgress(BaseModel):

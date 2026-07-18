@@ -32,6 +32,42 @@ class FakeSpaces:
         self.objects[key] = b"\n".join(lines) + b"\n"
         return len(prompts)
 
+    async def upload_raw_ndjson(self, key: str, data: bytes) -> int:
+        out: list[bytes] = []
+        idx = 0
+        for raw in data.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            text = line.decode("utf-8")
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed.setdefault("index", idx)
+                    out.append(json.dumps(parsed).encode())
+                else:
+                    out.append(json.dumps({"index": idx, "prompt": str(parsed)}).encode())
+            except json.JSONDecodeError:
+                out.append(json.dumps({"index": idx, "prompt": text}).encode())
+            idx += 1
+        self.objects[key] = b"\n".join(out) + (b"\n" if out else b"")
+        return len(out)
+
+    async def count_ndjson_lines(self, key: str) -> int:
+        data = self.objects[key].decode().strip()
+        if not data:
+            return 0
+        return len([ln for ln in data.split("\n") if ln.strip()])
+
+    async def copy_key(self, src_key: str, dest_key: str) -> str:
+        self.objects[dest_key] = self.objects[src_key]
+        return dest_key
+
+    async def download_url_to_key(self, url: str, key: str) -> int:
+        # Tests inject content via objects keyed by URL for simplicity
+        data = self.objects.get(url, b"")
+        return await self.upload_raw_ndjson(key, data)
+
     async def read_line_range(self, key: str, offset: int, limit: int) -> list[dict]:
         data = self.objects[key].decode().strip().split("\n")
         rows = [json.loads(line) for line in data if line]
@@ -146,3 +182,61 @@ async def test_process_and_finalize_chunk_flow(db_session: AsyncSession, monkeyp
     assert json.loads(lines[0])["output"] == "echo:hello-0"
     redis.enqueue_job.assert_called()
     await fake_redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_batch_from_raw_ndjson(db_session: AsyncSession):
+    spaces = FakeSpaces()
+    raw = b'{"prompt":"a"}\nplain text line\n{"prompt":"c"}\n'
+    batch = await create_batch(
+        db_session,
+        spaces=spaces,  # type: ignore[arg-type]
+        raw_ndjson=raw,
+        provider="mock",
+        model="mock-1",
+        chunk_size=10,
+    )
+    await db_session.commit()
+    assert batch.total_items == 3
+    rows = await spaces.read_line_range(batch.prompts_key, 0, 10)
+    assert rows[0]["prompt"] == "a"
+    assert rows[1]["prompt"] == "plain text line"
+    assert rows[2]["prompt"] == "c"
+
+
+@pytest.mark.asyncio
+async def test_create_batch_from_source_key(db_session: AsyncSession):
+    spaces = FakeSpaces()
+    await spaces.upload_prompts_ndjson("uploads/source.ndjson", ["x", "y"])
+    batch = await create_batch(
+        db_session,
+        spaces=spaces,  # type: ignore[arg-type]
+        source_key="uploads/source.ndjson",
+        provider="mock",
+        model="mock-1",
+    )
+    await db_session.commit()
+    assert batch.total_items == 2
+    assert batch.prompts_key != "uploads/source.ndjson"
+    assert batch.prompts_key in spaces.objects
+
+
+@pytest.mark.asyncio
+async def test_create_batch_uses_resolve_model_defaults(db_session: AsyncSession, monkeypatch):
+    from app.core.config import Settings
+
+    settings = Settings(
+        DEFAULT_PROVIDER="mock",
+        DEFAULT_MODEL="mock-1",
+        DEFAULT_COST_PREFERENCE="economy",
+    )
+    spaces = FakeSpaces()
+    batch = await create_batch(
+        db_session,
+        spaces=spaces,  # type: ignore[arg-type]
+        prompts=["hello"],
+        settings=settings,
+    )
+    await db_session.commit()
+    assert batch.provider == "mock"
+    assert batch.model == "mock-1"
