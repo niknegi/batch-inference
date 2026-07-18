@@ -7,13 +7,6 @@ Copy-paste curl commands to hit the live Droplet API from your laptop Terminal.
 | **Base URL** | `http://167.71.233.238:8000` |
 | **Auth** | `Authorization: Bearer demo-api-key-local-test` |
 
-Set once per shell session:
-
-```bash
-export BASE=http://167.71.233.238:8000
-export AUTH="Authorization: Bearer demo-api-key-local-test"
-```
-
 Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 
 ---
@@ -38,7 +31,7 @@ Interactive API docs (if reachable): http://167.71.233.238:8000/docs
 No auth required. Confirms the API process is up.
 
 ```bash
-curl -s "$BASE/health"
+curl -s "http://167.71.233.238:8000/health"
 ```
 
 Expected shape: `{"status":"ok","version":"..."}`.
@@ -50,8 +43,8 @@ Expected shape: `{"status":"ok","version":"..."}`.
 Creates a batch with inline prompts using the **mock** provider (no real LLM calls). Response is `202` and includes an `id` — save it for later steps.
 
 ```bash
-curl -s -X POST "$BASE/v1/batches" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: local-test-$(date +%s)" \
   -d '{
@@ -82,8 +75,8 @@ Example response:
 Capture the id for the rest of this guide:
 
 ```bash
-BATCH_ID=$(curl -s -X POST "$BASE/v1/batches" \
-  -H "$AUTH" \
+BATCH_ID=$(curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: local-test-$(date +%s)" \
   -d '{
@@ -111,8 +104,8 @@ Poll status and progress. Use `$BATCH_ID` from the create response (or paste a U
 # If you already have the create JSON in the clipboard / last response:
 # BATCH_ID=$(echo '<paste create response>' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
-curl -s "$BASE/v1/batches/$BATCH_ID" \
-  -H "$AUTH"
+curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
 Watch for `status` (`queued` → `running` → `completed` / `failed` / `cancelled`) and `progress.fraction`. When done, `result_url` may be present (presigned Spaces URL).
@@ -121,7 +114,8 @@ Poll until complete:
 
 ```bash
 while true; do
-  curl -s "$BASE/v1/batches/$BATCH_ID" -H "$AUTH" \
+  curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID" \
+    -H "Authorization: Bearer demo-api-key-local-test" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d['progress']); raise SystemExit(0 if d['status'] in ('completed','failed','cancelled') else 1)" \
     && break
   sleep 2
@@ -135,14 +129,15 @@ done
 Newest first. Default page size is 50 (max 200).
 
 ```bash
-curl -s "$BASE/v1/batches?limit=50&offset=0" \
-  -H "$AUTH"
+curl -s "http://167.71.233.238:8000/v1/batches?limit=50&offset=0" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
 Pretty-print ids and statuses:
 
 ```bash
-curl -s "$BASE/v1/batches?limit=50&offset=0" -H "$AUTH" \
+curl -s "http://167.71.233.238:8000/v1/batches?limit=50&offset=0" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); [print(i['id'], i['status'], i['provider'], i['model']) for i in d['items']]"
 ```
 
@@ -155,15 +150,15 @@ Only works after the batch has finished and `results_key` is set. By default the
 Follow redirect and print NDJSON results:
 
 ```bash
-curl -sL "$BASE/v1/batches/$BATCH_ID/results" \
-  -H "$AUTH"
+curl -sL "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
 JSON with URL only (no redirect):
 
 ```bash
-curl -s "$BASE/v1/batches/$BATCH_ID/results?redirect=false" \
-  -H "$AUTH"
+curl -s "http://167.71.233.238:8000/v1/batches/$BATCH_ID/results?redirect=false" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
 If you get `409 Results not ready`, poll get-by-id until `status` is `completed`.
@@ -175,8 +170,8 @@ If you get `409 Results not ready`, poll get-by-id until `status` is `completed`
 Cancels an in-flight (or still-queued) batch. Create a larger/slower one first if you need something still running.
 
 ```bash
-curl -s -X POST "$BASE/v1/batches/$BATCH_ID/cancel" \
-  -H "$AUTH"
+curl -s -X POST "http://167.71.233.238:8000/v1/batches/$BATCH_ID/cancel" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 ```
 
 Response is the updated batch (`status` → `cancelled` when successful).
@@ -196,8 +191,8 @@ cat > /tmp/prompts.ndjson <<'EOF'
 {"index": 2, "prompt": "Name one constellation visible from the northern hemisphere."}
 EOF
 
-curl -s -X POST "$BASE/v1/batches/upload" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Idempotency-Key: upload-$(date +%s)" \
   -F "file=@/tmp/prompts.ndjson" \
   -F "provider=mock" \
@@ -211,8 +206,8 @@ Or reuse repo samples as a prompt list (JSON body, not multipart):
 
 ```bash
 # From repo root — samples/batch_5_prompts.json is already mock-shaped
-curl -s -X POST "$BASE/v1/batches" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: sample-$(date +%s)" \
   -d @samples/batch_5_prompts.json
@@ -226,8 +221,8 @@ printf '%s\n' \
   "What year did the Apollo 11 moon landing occur?" \
   > /tmp/prompts.txt
 
-curl -s -X POST "$BASE/v1/batches/upload" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/batches/upload" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Idempotency-Key: txt-$(date +%s)" \
   -F "file=@/tmp/prompts.txt" \
   -F "provider=mock" \
@@ -250,8 +245,8 @@ DO_INFERENCE_API_KEY=...   # Model Access Key from DO Control Panel → Inferenc
 Live create:
 
 ```bash
-curl -s -X POST "$BASE/v1/batches" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/batches" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: do-live-$(date +%s)" \
   -d '{
@@ -278,8 +273,8 @@ Pings an arbitrary HTTPS endpoint with a signed test payload (`event: webhook.te
 Replace the URL with your own webhook.site / RequestBin / ngrok URL:
 
 ```bash
-curl -s -X POST "$BASE/v1/webhooks/test" \
-  -H "$AUTH" \
+curl -s -X POST "http://167.71.233.238:8000/v1/webhooks/test" \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://webhook.site/YOUR-UUID",
@@ -307,7 +302,8 @@ On a real batch you can also pass `"webhook_url": "https://..."` in the create J
 Quick sanity check that base URL + key work:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" "$BASE/health"
-curl -s -o /dev/null -w "%{http_code}\n" "$BASE/v1/batches?limit=1" -H "$AUTH"
+curl -s -o /dev/null -w "%{http_code}\n" "http://167.71.233.238:8000/health"
+curl -s -o /dev/null -w "%{http_code}\n" "http://167.71.233.238:8000/v1/batches?limit=1" \
+  -H "Authorization: Bearer demo-api-key-local-test"
 # expect 200 and 200
 ```
