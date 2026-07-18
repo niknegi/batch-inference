@@ -8,6 +8,7 @@ from fastapi import (
     Form,
     Header,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -21,6 +22,7 @@ from app.api.auth import require_api_key
 from app.api.schemas import (
     BatchCreateRequest,
     BatchCreateResponse,
+    BatchListResponse,
     BatchProgress,
     BatchResponse,
     HealthResponse,
@@ -31,7 +33,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.core.spaces import SpacesClient
 from app.models import Batch
-from app.services.batches import cancel_batch, create_batch, get_batch
+from app.services.batches import cancel_batch, create_batch, get_batch, list_batches
 from app.services.webhooks import build_webhook_payload, deliver_webhook
 
 router = APIRouter()
@@ -181,6 +183,21 @@ async def upload_batch_endpoint(
         status=batch.status.value,
         total_items=batch.total_items,
         chunk_size=batch.chunk_size,
+    )
+
+
+@router.get("/v1/batches", response_model=BatchListResponse, tags=["batches"])
+async def list_batches_endpoint(
+    session: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> BatchListResponse:
+    batches = await list_batches(session, limit=limit, offset=offset)
+    return BatchListResponse(
+        items=[_to_response(b) for b in batches],
+        limit=limit,
+        offset=offset,
     )
 
 

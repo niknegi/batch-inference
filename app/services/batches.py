@@ -127,6 +127,21 @@ async def get_batch(session: AsyncSession, batch_id: str) -> Batch | None:
     return await session.get(Batch, batch_id)
 
 
+async def list_batches(
+    session: AsyncSession,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Batch]:
+    result = await session.scalars(
+        select(Batch)
+        .order_by(Batch.created_at.desc(), Batch.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.all())
+
+
 async def cancel_batch(session: AsyncSession, batch: Batch) -> Batch:
     if batch.status in (BatchStatus.completed, BatchStatus.failed, BatchStatus.cancelled):
         return batch

@@ -73,6 +73,12 @@ class BatchCreateResponse(BaseModel):
     chunk_size: int
 
 
+class BatchListResponse(BaseModel):
+    items: list[BatchResponse]
+    limit: int
+    offset: int
+
+
 class WebhookTestRequest(BaseModel):
     url: HttpUrl
     secret: str | None = None

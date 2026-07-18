@@ -40,8 +40,8 @@ Services:
 ### Submit a batch
 
 ```bash
-curl -s -X POST http://localhost:8000/v1/batches \
-  -H "Authorization: Bearer dev-api-key-change-me" \
+curl -s -X POST http://167.71.233.238:8000/v1/batches \
+  -H "Authorization: Bearer demo-api-key-local-test" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: demo-1" \
   -d '{
@@ -107,6 +107,7 @@ python scripts/load_batch.py --count 50000 --chunk-size 100 --poll
 |--------|------|-------------|
 | `POST` | `/v1/batches` | Create batch from JSON (`prompts` / `prompts_url` / `prompts_key`; `Idempotency-Key` supported) |
 | `POST` | `/v1/batches/upload` | Create batch from multipart NDJSON/file upload |
+| `GET` | `/v1/batches` | List batches (`limit` default 50 max 200, `offset`) newest first |
 | `GET` | `/v1/batches/{id}` | Status + progress + result URL |
 | `GET` | `/v1/batches/{id}/results` | Redirect to presigned Spaces URL |
 | `POST` | `/v1/batches/{id}/cancel` | Cancel in-flight batch |

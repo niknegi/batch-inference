@@ -10,7 +10,7 @@
 #
 # 3. From your laptop:
 #
-#    git remote add droplet root@YOUR_DROPLET_IP:/opt/batch-inference.git
+#    git remote add droplet root@167.71.233.238:/opt/batch-inference.git
 #    git push droplet master
 #
 # Pushing master (or main) checks out into /opt/batch-inference and runs:

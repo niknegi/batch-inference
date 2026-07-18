@@ -91,3 +91,38 @@ def test_create_batch_invalid_key(api_env):
         json={"prompts": ["a"], "provider": "mock", "model": "mock-1"},
     )
     assert resp.status_code == 401
+
+
+def test_list_batches_unauthorized_without_key(api_env):
+    client, *_ = api_env
+    resp = client.get("/v1/batches")
+    assert resp.status_code == 401
+
+
+def test_list_batches_returns_newest_first(api_env):
+    client, *_ = api_env
+    headers = {"Authorization": "Bearer test-api-key"}
+    first = client.post(
+        "/v1/batches",
+        headers=headers,
+        json={"prompts": ["one"], "provider": "mock", "model": "mock-1"},
+    )
+    second = client.post(
+        "/v1/batches",
+        headers=headers,
+        json={"prompts": ["two"], "provider": "mock", "model": "mock-1"},
+    )
+    assert first.status_code == 202
+    assert second.status_code == 202
+
+    resp = client.get("/v1/batches", headers=headers, params={"limit": 10, "offset": 0})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["limit"] == 10
+    assert body["offset"] == 0
+    assert len(body["items"]) >= 2
+    ids = [item["id"] for item in body["items"]]
+    assert second.json()["id"] in ids
+    assert first.json()["id"] in ids
+    assert ids.index(second.json()["id"]) < ids.index(first.json()["id"])
+    assert all("status" in item and "progress" in item for item in body["items"])
