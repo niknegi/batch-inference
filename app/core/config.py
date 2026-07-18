@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     api_keys: str = Field(default="dev-api-key-change-me", alias="API_KEYS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # Build / deploy identity (set by CD or compose)
+    git_sha: str = Field(default="", alias="GIT_SHA")
+    build_id: str = Field(default="", alias="BUILD_ID")
+    built_at: str = Field(default="", alias="BUILT_AT")
+
     database_url: str = Field(
         default="postgresql+asyncpg://batch:batch@localhost:5432/batch_inference",
         alias="DATABASE_URL",

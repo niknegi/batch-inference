@@ -112,9 +112,7 @@ class SpacesClient:
                     )
             except json.JSONDecodeError:
                 out.append(
-                    json.dumps({"index": idx, "prompt": text}, ensure_ascii=False).encode(
-                        "utf-8"
-                    )
+                    json.dumps({"index": idx, "prompt": text}, ensure_ascii=False).encode("utf-8")
                 )
             idx += 1
         body = b"\n".join(out) + (b"\n" if out else b"")

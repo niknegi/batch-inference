@@ -52,14 +52,10 @@ async def create_batch(
             return existing
 
     sources = sum(
-        1
-        for s in (prompts is not None, raw_ndjson is not None, source_key, prompts_url)
-        if s
+        1 for s in (prompts is not None, raw_ndjson is not None, source_key, prompts_url) if s
     )
     if sources == 0:
-        raise ValueError(
-            "one of prompts, raw_ndjson, source_key, or prompts_url is required"
-        )
+        raise ValueError("one of prompts, raw_ndjson, source_key, or prompts_url is required")
     if prompts is not None and not prompts:
         raise ValueError("prompts must be non-empty")
 
@@ -134,10 +130,7 @@ async def list_batches(
     offset: int = 0,
 ) -> list[Batch]:
     result = await session.scalars(
-        select(Batch)
-        .order_by(Batch.created_at.desc(), Batch.id.desc())
-        .limit(limit)
-        .offset(offset)
+        select(Batch).order_by(Batch.created_at.desc(), Batch.id.desc()).limit(limit).offset(offset)
     )
     return list(result.all())
 

@@ -112,7 +112,7 @@ python scripts/load_batch.py --count 50000 --chunk-size 100 --poll
 | `GET` | `/v1/batches/{id}/results` | Redirect to presigned Spaces URL |
 | `POST` | `/v1/batches/{id}/cancel` | Cancel in-flight batch |
 | `POST` | `/v1/webhooks/test` | Ping a webhook endpoint |
-| `GET` | `/health` | Liveness |
+| `GET` | `/health` | Liveness + `version` / `git_sha` / `built_at` |
 | `GET` | `/metrics` | Prometheus metrics |
 
 Auth: `Authorization: Bearer <API_KEY>` (comma-separated keys in `API_KEYS`).
@@ -253,9 +253,46 @@ GitHub Actions workflows live in `.github/workflows/`:
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | **CI** | push/PR to `master`/`main` | Ruff lint + format, **full pytest suite** (`tests/`), Docker build (no push) |
-| **CD** | push to `master`/`main`, tags `v*`, or manual | Re-runs full test suite, then builds & pushes to `ghcr.io/niknegi/batch-inference` (publish is blocked if tests fail) |
+| **CD** | push to `master`/`main`, tags `v*`, or manual | Tests → publish image to GHCR → **SSH deploy to Droplet** (on `master`/`main` only) |
 
-Pull the published image:
+### Verify a deploy
+
+```bash
+curl -s http://YOUR_DROPLET_IP:8000/health
+```
+
+Example:
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.1",
+  "git_sha": "abc1234",
+  "build_id": "full-sha-or-github-sha",
+  "built_at": "2026-07-18T12:00:00Z"
+}
+```
+
+`GIT_SHA` / `BUILD_ID` / `BUILT_AT` are written into the Droplet `.env` at deploy time and passed into the `api` / `worker` containers.
+
+### GitHub secrets (required for Droplet CD)
+
+In the repo: **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Value |
+|--------|-------|
+| `DROPLET_HOST` | `167.71.233.238` |
+| `DROPLET_USER` | `root` |
+| `DROPLET_SSH_KEY` | **Private** SSH key whose public key is in Droplet `~/.ssh/authorized_keys` |
+
+Do **not** commit private keys. `GITHUB_TOKEN` is provided automatically by Actions (used for GHCR push and optional git pull on the Droplet).
+
+After secrets are set, every push to `master`/`main` that passes tests will:
+
+1. Publish `ghcr.io/niknegi/batch-inference`
+2. SSH to the Droplet, `git fetch` + reset to `origin/master`, set build env vars, `docker compose up --build -d`, and `curl` `/health`
+
+### Pull the published image
 
 ```bash
 docker pull ghcr.io/niknegi/batch-inference:latest
@@ -270,42 +307,12 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
 Tag a release to publish a semver image:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
-### Deploy on push (DigitalOcean Droplet)
+### Optional: deploy via git push to Droplet
 
-Auto-update the Droplet when you push via a **bare git repo + `post-receive` hook**.
-
-**On the Droplet (once):**
-
-```bash
-# Install Docker Engine + Compose plugin first, then:
-git clone https://github.com/niknegi/batch-inference.git /tmp/batch-setup
-sudo bash /tmp/batch-setup/deploy/setup-droplet.sh
-
-# Create production env (not in git):
-sudo nano /opt/batch-inference/.env
-```
-
-This creates:
-
-| Path | Role |
-|------|------|
-| `/opt/batch-inference.git` | Bare repo you push to |
-| `/opt/batch-inference` | Checked-out app + `docker compose` |
-| `.../hooks/post-receive` | On push → `git checkout -f` + `docker compose up --build -d` |
-
-**On your laptop:**
-
-```bash
-git remote add droplet root@YOUR_DROPLET_IP:/opt/batch-inference.git
-git push droplet master
-```
-
-Use `master` or `main` — the hook accepts both. Scripts live in [`deploy/`](deploy/).
-
-> Prefer GitHub → Droplet only: push to `origin`, then SSH and `git pull` in `/opt/batch-inference`, or add a GitHub Action that SSHes and pulls. The `droplet` remote is the simplest auto-deploy path.
+You can still push directly to a bare repo on the Droplet (`post-receive` sets `GIT_SHA` and rebuilds). See [`deploy/`](deploy/).
 
 ## License
 

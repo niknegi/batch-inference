@@ -32,9 +32,7 @@ class BatchCreateRequest(BaseModel):
     @model_validator(mode="after")
     def require_input_source(self) -> Self:
         if not self.prompts and not self.prompts_url and not self.prompts_key:
-            raise ValueError(
-                "at least one of prompts, prompts_url, or prompts_key is required"
-            )
+            raise ValueError("at least one of prompts, prompts_url, or prompts_key is required")
         return self
 
 
@@ -92,3 +90,6 @@ class WebhookTestResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+    git_sha: str = "unknown"
+    build_id: str | None = None
+    built_at: str = "unknown"

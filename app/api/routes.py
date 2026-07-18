@@ -83,7 +83,14 @@ async def get_spaces(request: Request) -> SpacesClient:
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 async def health() -> HealthResponse:
-    return HealthResponse(status="ok", version=__version__)
+    settings = get_settings()
+    return HealthResponse(
+        status="ok",
+        version=__version__,
+        git_sha=settings.git_sha or "unknown",
+        build_id=settings.build_id or None,
+        built_at=settings.built_at or "unknown",
+    )
 
 
 @router.get("/metrics", tags=["health"])

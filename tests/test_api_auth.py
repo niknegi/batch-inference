@@ -55,7 +55,11 @@ def test_health_is_free(api_env):
     client, *_ = api_env
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert "version" in body
+    assert "git_sha" in body
+    assert "built_at" in body
 
 
 def test_create_batch_unauthorized_without_key(api_env):

@@ -480,9 +480,7 @@ async def deliver_batch_webhook(ctx: dict[str, Any], batch_id: str, event: str) 
         await session.commit()
         delay = webhook_backoff_seconds(batch.webhook_attempts)
         defer_by = max(1, int(round(delay)))
-        await ctx["redis"].enqueue_job(
-            "deliver_batch_webhook", batch_id, event, _defer_by=defer_by
-        )
+        await ctx["redis"].enqueue_job("deliver_batch_webhook", batch_id, event, _defer_by=defer_by)
         return {"ok": False, "retry_in": defer_by, "error": err}
 
 

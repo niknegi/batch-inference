@@ -78,9 +78,7 @@ async def test_happy_path_create_process_finalize(db_session: AsyncSession, monk
 
 
 @pytest.mark.asyncio
-async def test_partial_failures_completed_with_failed_items(
-    db_session: AsyncSession, monkeypatch
-):
+async def test_partial_failures_completed_with_failed_items(db_session: AsyncSession, monkeypatch):
     import app.workers.jobs as jobs
 
     spaces = FakeSpaces()

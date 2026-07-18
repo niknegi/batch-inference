@@ -17,7 +17,7 @@ def test_exponential_backoff_jitter_in_range(monkeypatch):
 
 def test_exponential_backoff_jitter_bounds_many_samples():
     for attempt in (0, 1, 2, 3, 10):
-        cap = min(8.0, 1.0 * (2**max(attempt, 0)))
+        cap = min(8.0, 1.0 * (2 ** max(attempt, 0)))
         for _ in range(50):
             delay = exponential_backoff_seconds(attempt, base=1.0, cap=8.0, jitter=True)
             assert 0.0 <= delay <= cap

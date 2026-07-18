@@ -31,9 +31,7 @@ async def test_mock_provider_success():
 async def test_mock_provider_terminal_failure():
     p = MockProvider(latency_ms=0)
     result = await p.infer(
-        InferenceRequest(
-            prompt="__fail_terminal__ boom", model="mock-1", provider="mock", index=1
-        )
+        InferenceRequest(prompt="__fail_terminal__ boom", model="mock-1", provider="mock", index=1)
     )
     assert not result.ok
     assert result.error_kind == ErrorKind.terminal
@@ -44,9 +42,7 @@ async def test_mock_provider_terminal_failure():
 async def test_mock_provider_retryable_failure():
     p = MockProvider(latency_ms=0)
     result = await p.infer(
-        InferenceRequest(
-            prompt="__fail_retry__ boom", model="mock-1", provider="mock", index=2
-        )
+        InferenceRequest(prompt="__fail_retry__ boom", model="mock-1", provider="mock", index=2)
     )
     assert not result.ok
     assert result.error_kind == ErrorKind.retryable
