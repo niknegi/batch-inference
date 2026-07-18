@@ -241,21 +241,15 @@ async def process_chunk(
                 chunk.error = None
                 await session.flush()
 
-                # Recompute counters from succeeded chunks for crash safety
-                totals = await session.execute(
-                    select(
-                        func.coalesce(func.sum(BatchChunk.ok_count), 0),
-                        func.coalesce(func.sum(BatchChunk.fail_count), 0),
-                    ).where(
-                        and_(
-                            BatchChunk.batch_id == batch_id,
-                            BatchChunk.status == ChunkStatus.succeeded,
-                        )
+                # Atomic progress bump (avoid lost updates under concurrent chunk workers)
+                await session.execute(
+                    update(Batch)
+                    .where(Batch.id == batch_id)
+                    .values(
+                        completed_items=Batch.completed_items + ok_count + fail_count,
+                        failed_items=Batch.failed_items + fail_count,
                     )
                 )
-                ok_sum, fail_sum = totals.one()
-                batch.completed_items = int(ok_sum) + int(fail_sum)
-                batch.failed_items = int(fail_sum)
                 await session.commit()
 
             # Nudge completion check
