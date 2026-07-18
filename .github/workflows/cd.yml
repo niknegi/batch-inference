@@ -84,7 +84,28 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, publish]
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    # Required repo secrets (Settings → Secrets and variables → Actions):
+    #   DROPLET_HOST     — Droplet IP or hostname
+    #   DROPLET_USER     — SSH user (e.g. root)
+    #   DROPLET_SSH_KEY  — private key authorized on the Droplet
+    # Job fails early with a clear message if any are missing (avoids drone-ssh "missing server host").
     steps:
+      - name: Check deploy secrets
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+        run: |
+          missing=()
+          [ -z "$DROPLET_HOST" ] && missing+=(DROPLET_HOST)
+          [ -z "$DROPLET_USER" ] && missing+=(DROPLET_USER)
+          [ -z "$DROPLET_SSH_KEY" ] && missing+=(DROPLET_SSH_KEY)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Deploy secrets missing: ${missing[*]}. Add them under Settings → Secrets and variables → Actions, then re-run."
+            exit 1
+          fi
+          echo "Deploy secrets present (host length=${#DROPLET_HOST}, user length=${#DROPLET_USER}, key length=${#DROPLET_SSH_KEY})."
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
