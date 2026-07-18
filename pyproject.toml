@@ -1,6 +1,6 @@
 [project]
 name = "batch-inference"
-version = "0.1.0"
+version = "0.1.1"
 description = "Production batch inference service with multi-provider fan-out, DO Spaces checkpoints, and webhooks"
 readme = "README.md"
 requires-python = ">=3.11"
